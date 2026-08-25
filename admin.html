@@ -101,4 +101,5 @@ window.openInquiry=x=>modal(`<button class="btn small gray modal-close" onclick=
 window.editSignupCode=x=>{scCode.value=x.code;scMax.value=x.max_uses??'';scExp.value=x.expires_at?String(x.expires_at).slice(0,16):'';scActive.value=x.active?'1':'0'};window.saveSignupCode=()=>act('signup_code_save',{code:scCode.value,max_uses:scMax.value,expires_at:scExp.value?new Date(scExp.value).toISOString():null,active:scActive.value==='1'});window.deleteSignupCode=code=>confirm('가입코드를 삭제할까요?')&&act('signup_code_delete',{code});
 window.changePassword=async()=>{if(!curPw.value||!newPw.value||!newPw2.value)return pwMsg.textContent='비밀번호를 모두 입력하세요.';if(newPw.value!==newPw2.value)return pwMsg.textContent='새 비밀번호 확인이 일치하지 않습니다.';if(newPw.value.length<8)return pwMsg.textContent='새 비밀번호는 8자 이상 입력하세요.';try{await post(AUTH,{action:'change_password',current_password:curPw.value,new_password:newPw.value},true);pwMsg.textContent='비밀번호가 변경되었습니다.';curPw.value=newPw.value=newPw2.value=''}catch(e){pwMsg.textContent=e.message==='invalid_current_password'?'현재 비밀번호가 일치하지 않습니다.':e.message}}
 </script>
+<script src="/admin-live.js?v=1"></script>
 </body></html>
