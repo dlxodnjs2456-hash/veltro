@@ -30,7 +30,10 @@ jobs:
           foreach ($i in 1..5) { $b64 += Get-Content ("desktop/v102_parts/part_{0:D2}" -f $i) -Raw }
           $b64 += Get-Content desktop/v102_parts/part_06 -Raw
           $b64 += Get-Content desktop/v102_parts/part_06b -Raw
-          foreach ($i in 7..16) { $b64 += Get-Content ("desktop/v102_parts/part_{0:D2}" -f $i) -Raw }
+          foreach ($i in 7..13) { $b64 += Get-Content ("desktop/v102_parts/part_{0:D2}" -f $i) -Raw }
+          $b64 += Get-Content desktop/v102_parts/part_14a -Raw
+          $b64 += Get-Content desktop/v102_parts/part_14b -Raw
+          foreach ($i in 15..16) { $b64 += Get-Content ("desktop/v102_parts/part_{0:D2}" -f $i) -Raw }
           $b64 = $b64 -replace '\s',''
           if ($b64.Length -ne 150648) { throw "Unexpected source base64 length: $($b64.Length)" }
           $bytes = [Convert]::FromBase64String($b64)
