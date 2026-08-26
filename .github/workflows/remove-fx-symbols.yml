@@ -1,0 +1,34 @@
+name: Remove retired FX symbols
+on:
+  push:
+    paths:
+      - '.github/workflows/remove-fx-symbols.yml'
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch WTS
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('index.html')
+          s=p.read_text(encoding='utf-8')
+          lines=s.splitlines()
+          lines=[x for x in lines if "symbol:'6BU26'" not in x and "symbol:'6EU26'" not in x]
+          s='\n'.join(lines)+'\n'
+          old="async function submit(side){try{const type=$('#ot').value,qty=Math.max(1,Number($('#oq').value||1)),price=Number($('#op').value||lp());$('#om').textContent='주문 처리 중...';await api(TRADING,{action:'submit_order',symbol:cur.symbol,side,order_type:type,qty,price});await loadTrading();renderAll();toast('주문이 처리되었습니다.')}catch(e){toast('주문 실패: '+e.message)}}"
+          new="async function submit(side){const msg=$('#om');try{const type=$('#ot').value,qty=Math.max(1,Number($('#oq').value||1)),price=Number($('#op').value||lp());if(!Number.isFinite(price)||price<=0)throw Error('현재가를 확인할 수 없습니다.');if(msg)msg.textContent='주문 처리 중...';const r=await api(TRADING,{action:'submit_order',symbol:cur.symbol,side,order_type:type,qty,price});await loadTrading();renderAll();toast(r?.filled===false?'지정가 주문이 접수되었습니다.':'주문이 체결되었습니다.')}catch(e){if(msg)msg.textContent='주문 실패: '+e.message;toast('주문 실패: '+e.message)}}"
+          if old in s: s=s.replace(old,new)
+          p.write_text(s,encoding='utf-8')
+          PY
+      - name: Commit patch
+        run: |
+          git config user.name "VELTRO Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add index.html
+          git diff --cached --quiet && exit 0
+          git commit -m "Hide 6B and 6E and improve WTS order feedback"
+          git push
