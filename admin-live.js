@@ -1,14 +1,12 @@
 (()=>{
   let alarmTimer=null, audioCtx=null, acknowledgedKey='';
+  const WADMIN=U+'/functions/v1/withdrawal-admin-api';
   const requestKey=(d)=>{
     const deps=(d?.deposits||[]).filter(x=>['pending','confirm_requested'].includes(x.status)).map(x=>`D${x.id}:${x.status}`).sort();
     const wds=(d?.withdrawals||[]).filter(x=>x.status==='pending').map(x=>`W${x.id}`).sort();
     return [...deps,...wds].join('|');
   };
-  const counts=(d)=>({
-    dep:(d?.deposits||[]).filter(x=>['pending','confirm_requested'].includes(x.status)).length,
-    wd:(d?.withdrawals||[]).filter(x=>x.status==='pending').length
-  });
+  const counts=(d)=>({dep:(d?.deposits||[]).filter(x=>['pending','confirm_requested'].includes(x.status)).length,wd:(d?.withdrawals||[]).filter(x=>x.status==='pending').length});
   function ensureAudio(){try{if(!audioCtx)audioCtx=new (window.AudioContext||window.webkitAudioContext)();if(audioCtx.state==='suspended')audioCtx.resume();}catch{}}
   function beep(){try{ensureAudio();if(!audioCtx)return;const now=audioCtx.currentTime;[0,.22,.44].forEach((off,i)=>{const o=audioCtx.createOscillator(),g=audioCtx.createGain();o.type='square';o.frequency.value=i%2?880:660;g.gain.setValueAtTime(.0001,now+off);g.gain.exponentialRampToValueAtTime(.13,now+off+.01);g.gain.exponentialRampToValueAtTime(.0001,now+off+.15);o.connect(g).connect(audioCtx.destination);o.start(now+off);o.stop(now+off+.17);});}catch{}}
   function stopAlarm(){if(alarmTimer){clearInterval(alarmTimer);alarmTimer=null;}}
@@ -17,6 +15,9 @@
   function updateBadges(d){const c=counts(d);[['deposits',c.dep],['withdrawals',c.wd]].forEach(([p,n])=>{const b=document.querySelector(`.nav[data-page="${p}"]`);if(!b)return;let s=b.querySelector('.live-badge');if(!s){s=document.createElement('span');s.className='live-badge';s.style.cssText='float:right;background:#e14f43;color:#fff;min-width:18px;height:18px;line-height:18px;text-align:center;border-radius:9px;font-size:10px;margin-top:10px';b.appendChild(s);}s.textContent=n;s.style.display=n?'inline-block':'none';});}
   function handleAlarm(d){const key=requestKey(d),c=counts(d),el=banner();updateBadges(d);if(key&&key!==acknowledgedKey){el.style.display='block';el.querySelector('#requestAlarmText').textContent=`충전 ${c.dep}건 / 출금 ${c.wd}건 처리 대기`;startAlarm();}else if(!key){stopAlarm();el.style.display='none';acknowledgedKey='';}}
   async function refreshLive(){try{if(!token)return;const next=await post(ADMIN,{action:'dashboard'},true);data=next;handleAlarm(next);const active=document.activeElement;const editing=active&&['INPUT','TEXTAREA','SELECT'].includes(active.tagName);const modalOpen=document.querySelector('.modal-mask');if(!editing&&!modalOpen&&['deposits','withdrawals','money','performance'].includes(page))render();}catch(e){console.warn('admin live refresh failed',e);}}
+  async function wact(action,id,note=''){const r=await fetch(WADMIN,{method:'POST',headers:{'content-type':'application/json',apikey:K,Authorization:'Bearer '+token},body:JSON.stringify({action,id,admin_note:note})});let j={};try{j=await r.json()}catch{}if(!r.ok)throw Error(j.error||'request_failed');await load();return j;}
+  window.approveWithdrawal=async id=>{if(!confirm('출금 승인을 처리할까요?'))return;try{await wact('approve',id);alert('출금 승인이 완료되었습니다.')}catch(e){alert(e.message)}};
+  window.rejectWithdrawal=async id=>{const note=prompt('반려사유를 입력하세요.')||'';if(note===null)return;try{await wact('reject',id,note);alert('출금이 반려되었으며 예약된 금액은 잔고로 반환되었습니다.')}catch(e){alert(e.message)}};
   document.addEventListener('pointerdown',ensureAudio,{once:true,capture:true});
   const boot=setInterval(()=>{if(token){clearInterval(boot);refreshLive();setInterval(refreshLive,5000);}},500);
 })();
