@@ -2,6 +2,7 @@ from pathlib import Path
 p=Path('index.html')
 s=p.read_text(encoding='utf-8')
 s=s.replace(",chart=null,tf=1,timers=[];",",chart=null,tf=1;")
+s=s.replace("function logout(){stopPollers();timers.forEach(clearInterval);timers=[];clearPersistedSession();$('#app').classList.add('hidden');$('#login').classList.remove('hidden');$('#pw').value=''}","function logout(){stopPollers();clearPersistedSession();$('#app').classList.add('hidden');$('#login').classList.remove('hidden');$('#pw').value=''}")
 old="""async function quoteLoop(){
   if(pollStop||!token)return;
   if(!document.hidden){
