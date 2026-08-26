@@ -77,7 +77,17 @@ async function mobileOrder(type){const q=Number(prompt('주문 수량','1'));if(
 function setPage(p){page=p;renderAll();closeDrawer()}function closeDrawer(){$('#drawer').classList.add('hidden');$('#mask').classList.add('hidden')}
 function logout(){timers.forEach(clearInterval);timers=[];token='';profile=null;$('#app').classList.add('hidden');$('#login').classList.remove('hidden');$('#pw').value=''}
 async function pollOpenOrderQuotes(){const syms=[...new Set((trading.orders||[]).filter(o=>String(o.status).toUpperCase()==='OPEN'&&String(o.order_type).toUpperCase()==='LIMIT').map(o=>o.symbol).filter(x=>x&&x!==cur.symbol))];for(const symbol of syms.slice(0,8)){const i=INS.find(x=>x.symbol===symbol);if(!i)continue;try{await api(MARKET,{action:'quote',region:region(i),code:i.code})}catch{}}}
-async function startTimers(){timers.forEach(clearInterval);timers=[setInterval(async()=>{if(!token)return;try{await loadQuote();if(page==='trade'&&tab==='quote'&&!['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName))renderAll()}catch{}},3000),setInterval(async()=>{if(!token)return;try{await Promise.all([loadTrading(),loadDash()]);pollOpenOrderQuotes();if(tab!=='chart'&&!['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName))renderAll()}catch{}},5000),setInterval(()=>{if(page==='trade'&&tab==='chart')drawChart()},30000)]}
+function refreshLiveTrade(){
+  if(page!=='trade') return;
+  const price=pf(lp());
+  document.querySelectorAll('.last').forEach(el=>el.textContent=price);
+  document.querySelectorAll('.book').forEach(el=>el.innerHTML=ladder());
+  document.querySelectorAll('.bottom').forEach(el=>el.innerHTML=positions());
+  const mob=document.querySelector('#mMain');
+  if(isMobile()&&mob&&tab==='positions') mob.innerHTML=mobile();
+  bind();
+}
+async function startTimers(){timers.forEach(clearInterval);timers=[setInterval(async()=>{if(!token)return;try{await loadQuote();if(page==='trade')refreshLiveTrade()}catch{}},3000),setInterval(async()=>{if(!token)return;try{await Promise.all([loadTrading(),loadDash()]);pollOpenOrderQuotes();if(tab!=='chart'&&!['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName))renderAll()}catch{}},5000),setInterval(()=>{if(page==='trade'&&tab==='chart')drawChart()},30000)]}
 $('#loginBtn').onclick=async()=>{try{$('#loginMsg').textContent='';const r=await api(AUTH,{action:'login',login_id:$('#id').value.trim(),password:$('#pw').value},false);if(!r.session?.access_token)throw Error('session_failed');token=r.session.access_token;profile=r.profile;$('#login').classList.add('hidden');$('#app').classList.remove('hidden');await syncAll(true);startTimers()}catch(e){$('#loginMsg').textContent=e.message==='invalid_credentials'?'아이디 또는 비밀번호를 확인하세요.':e.message}};$('#pw').onkeydown=e=>{if(e.key==='Enter')$('#loginBtn').click()};
 $$('[data-page]').forEach(b=>b.onclick=()=>setPage(b.dataset.page));$('#tradeToggle').onclick=()=>{page='trade';renderAll()};$('#logout').onclick=logout;$('#mLogout').onclick=logout;$('#drawerBtn').onclick=()=>{$('#drawer').classList.remove('hidden');$('#mask').classList.remove('hidden')};$('#mask').onclick=closeDrawer;$('#bell').onclick=()=>setPage('alerts');$('#mTrade').onclick=()=>{page='trade';renderAll();closeDrawer()};$$('[data-morder]').forEach(b=>b.onclick=()=>mobileOrder(b.dataset.morder));$$('#mTabs button').forEach(b=>b.onclick=()=>{tab=b.dataset.tab;renderAll()});window.addEventListener('resize',()=>{if(token)renderAll()});
 </script>
