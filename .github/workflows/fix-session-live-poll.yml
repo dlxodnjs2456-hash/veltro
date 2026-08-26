@@ -1,0 +1,96 @@
+name: Fix WTS session and live polling
+on:
+  push:
+    paths:
+      - '.github/workflows/fix-session-live-poll.yml'
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch WTS
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('index.html')
+          s=p.read_text(encoding='utf-8')
+
+          s=s.replace("let token='',profile=null,trading=", "let token='',refreshToken='',profile=null,trading=")
+
+          marker="async function pollOpenOrderQuotes()"
+          helper=r'''const SESSION_KEY='veltro_wts_session_v1';
+function persistSession(session,prof){
+  token=String(session?.access_token||token||'');
+  refreshToken=String(session?.refresh_token||refreshToken||'');
+  if(prof) profile=prof;
+  if(token&&refreshToken){localStorage.setItem(SESSION_KEY,JSON.stringify({access_token:token,refresh_token:refreshToken,profile:profile||null,saved_at:Date.now()}));}
+}
+function clearPersistedSession(){localStorage.removeItem(SESSION_KEY);token='';refreshToken='';profile=null;}
+async function renewSession(){
+  if(!refreshToken)return false;
+  try{
+    const r=await fetch(U+'/auth/v1/token?grant_type=refresh_token',{method:'POST',headers:{'content-type':'application/json',apikey:K},body:JSON.stringify({refresh_token:refreshToken})});
+    const j=await r.json().catch(()=>({}));
+    if(!r.ok||!j?.access_token)return false;
+    persistSession(j,profile);return true;
+  }catch{return false}
+}
+async function api(url,body,auth=true,retry=true){
+  const doFetch=()=>fetch(url,{method:'POST',headers:{'content-type':'application/json',apikey:K,Authorization:'Bearer '+(auth?token:K)},body:JSON.stringify(body)});
+  let r=await doFetch();
+  if(auth&&r.status===401&&retry&&await renewSession())r=await doFetch();
+  let j={};try{j=await r.json()}catch{}
+  if(!r.ok)throw Error(j.error||j.detail||'request_failed');
+  return j;
+}
+async function restoreSession(){
+  let saved=null;try{saved=JSON.parse(localStorage.getItem(SESSION_KEY)||'null')}catch{}
+  if(!saved?.access_token||!saved?.refresh_token)return false;
+  token=String(saved.access_token);refreshToken=String(saved.refresh_token);profile=saved.profile||null;
+  try{
+    $('#login').classList.add('hidden');$('#app').classList.remove('hidden');
+    await syncAll(true);startTimers();return true;
+  }catch(e){
+    if(await renewSession()){
+      try{await syncAll(true);startTimers();return true}catch{}
+    }
+    clearPersistedSession();$('#app').classList.add('hidden');$('#login').classList.remove('hidden');return false;
+  }
+}
+'''
+          if "const SESSION_KEY='veltro_wts_session_v1';" not in s and marker in s:
+              s=s.replace(marker,helper+marker)
+
+          old="async function startTimers(){timers.forEach(clearInterval);timers=[setInterval(async()=>{if(!token)return;try{await loadQuote();if(page==='trade')refreshLiveTrade()}catch{}},3000),setInterval(async()=>{if(!token)return;try{await Promise.all([loadTrading(),loadDash()]);pollOpenOrderQuotes();if(tab!=='chart'&&!['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName))renderAll()}catch{}},5000),setInterval(()=>{if(page==='trade'&&tab==='chart')drawChart()},30000)]}"
+          new="async function startTimers(){timers.forEach(clearInterval);timers=[setInterval(async()=>{if(!token||document.hidden)return;try{await loadQuote();if(page==='trade')refreshLiveTrade()}catch(e){console.warn('quote poll',e)}},2000),setInterval(async()=>{if(!token||document.hidden)return;try{await Promise.all([loadTrading(),loadDash()]);pollOpenOrderQuotes();if(page!=='trade'&&!['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName))renderAll()}catch(e){console.warn('account poll',e)}},5000),setInterval(()=>{if(page==='trade'&&tab==='chart'&&!document.hidden)drawChart()},30000)]}"
+          if old in s:s=s.replace(old,new)
+
+          old_logout="function logout(){timers.forEach(clearInterval);timers=[];token='';profile=null;$('#app').classList.add('hidden');$('#login').classList.remove('hidden');$('#pw').value=''}"
+          new_logout="function logout(){timers.forEach(clearInterval);timers=[];clearPersistedSession();$('#app').classList.add('hidden');$('#login').classList.remove('hidden');$('#pw').value=''}"
+          if old_logout in s:s=s.replace(old_logout,new_logout)
+
+          old_login="token=r.session.access_token;profile=r.profile;$('#login').classList.add('hidden');$('#app').classList.remove('hidden');await syncAll(true);startTimers()"
+          new_login="persistSession(r.session,r.profile);$('#login').classList.add('hidden');$('#app').classList.remove('hidden');await syncAll(true);startTimers()"
+          if old_login in s:s=s.replace(old_login,new_login)
+
+          end="window.addEventListener('resize',()=>{if(token)renderAll()});"
+          if end in s and "restoreSession();" not in s:
+              s=s.replace(end,end+"document.addEventListener('visibilitychange',()=>{if(!document.hidden&&token){loadQuote().then(()=>refreshLiveTrade()).catch(()=>{});}});restoreSession();")
+
+          p.write_text(s,encoding='utf-8')
+          PY
+      - name: Validate HTML JavaScript markers
+        run: |
+          grep -q "veltro_wts_session_v1" index.html
+          grep -q "},2000)" index.html
+          grep -q "persistSession(r.session,r.profile)" index.html
+      - name: Commit patch
+        run: |
+          git config user.name "VELTRO Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add index.html
+          git diff --cached --quiet && exit 0
+          git commit -m "Fix WTS live polling and persistent session"
+          git push
