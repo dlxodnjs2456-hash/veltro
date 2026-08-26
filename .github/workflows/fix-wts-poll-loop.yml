@@ -1,0 +1,28 @@
+name: Fix WTS resilient polling loop
+on:
+  push:
+    paths:
+      - '.github/workflows/fix-wts-poll-loop.yml'
+      - '.github/scripts/patch_wts_poll_loop.py'
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch WTS polling
+        run: python .github/scripts/patch_wts_poll_loop.py
+      - name: Validate polling markers
+        run: |
+          grep -q "setTimeout(quoteLoop,1500)" index.html
+          grep -q "function stopPollers()" index.html
+          grep -q "veltro_wts_session_v1" index.html
+      - name: Commit patch
+        run: |
+          git config user.name "VELTRO Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add index.html
+          git diff --cached --quiet && exit 0
+          git commit -m "Use resilient WTS live polling loop"
+          git push
