@@ -1,5 +1,6 @@
 (()=>{
   let alarmTimer=null, audioCtx=null, acknowledgedKey='', signupRequests=[], marketConfig=null;
+  let liveTimer=null, liveBusy=false, liveStopped=false;
   const WADMIN=U+'/functions/v1/withdrawal-admin-api';
   const SADMIN=U+'/functions/v1/signup-admin-api';
   const MADMIN=U+'/functions/v1/market-data-admin';
@@ -13,7 +14,7 @@
   function badgeFor(btn,n){if(!btn)return;let s=btn.querySelector('.live-badge');if(!s){s=document.createElement('span');s.className='live-badge';s.style.cssText='float:right;background:#e14f43;color:#fff;min-width:18px;height:18px;line-height:18px;text-align:center;border-radius:9px;font-size:10px;margin-top:10px';btn.appendChild(s);}s.textContent=n;s.style.display=n?'inline-block':'none';}
   function updateBadges(d){const c=counts(d);badgeFor(document.querySelector('.nav[data-page="signupApprovals"]'),c.signup);badgeFor(document.querySelector('.nav[data-page="deposits"]'),c.dep);badgeFor(document.querySelector('.nav[data-page="withdrawals"]'),c.wd);}
   function handleAlarm(d){const key=requestKey(d),c=counts(d),el=banner();updateBadges(d);if(key&&key!==acknowledgedKey){el.style.display='block';el.querySelector('#requestAlarmText').textContent=`가입 ${c.signup}건 / 충전 ${c.dep}건 / 출금 ${c.wd}건 처리 대기`;startAlarm();}else if(!key){stopAlarm();el.style.display='none';acknowledgedKey='';}}
-  async function apiPost(url,payload){const r=await fetch(url,{method:'POST',headers:{'content-type':'application/json',apikey:K,Authorization:'Bearer '+token},body:JSON.stringify(payload)});let j={};try{j=await r.json()}catch{}if(!r.ok)throw Error(j.error||'request_failed');return j;}
+  async function apiPost(url,payload){const r=await fetch(url,{method:'POST',headers:{'content-type':'application/json',apikey:K,Authorization:'Bearer '+token},body:JSON.stringify(payload)});let j={};try{j=await r.json()}catch{}if(!r.ok){const e=new Error(j.error||'request_failed');e.status=r.status;throw e;}return j;}
   async function signupPost(payload){return apiPost(SADMIN,payload)}
   async function marketPost(payload){return apiPost(MADMIN,payload)}
   function ensureExtraMenus(){ensureSignupMenu();if(!document.querySelector('.nav[data-page="marketData"]')){const pw=document.querySelector('.nav[data-page="password"]');if(pw){const b=document.createElement('button');b.className='nav';b.dataset.page='marketData';b.textContent='시세 API 설정';pw.parentNode.insertBefore(b,pw);b.onclick=async()=>{document.querySelectorAll('.nav').forEach(x=>x.classList.remove('active'));b.classList.add('active');page='marketData';crumbName.textContent='시세 API 설정';await renderMarketData();};}}}
@@ -25,10 +26,15 @@
   window.clearMarketDataConfig=async()=>{if(!confirm('저장된 시세 API Key를 삭제할까요?'))return;try{await marketPost({action:'save_config',clear:true,api_base:document.getElementById('marketApiBase')?.value||''});await renderMarketData()}catch(e){alert(e.message)}};
   window.approveSignup=async id=>{if(!confirm('이 회원의 가입을 승인할까요?'))return;try{await signupPost({action:'approve',user_id:id});alert('가입 승인이 완료되었습니다. 이제 회원이 로그인할 수 있습니다.');await refreshLive();if(page==='signupApprovals')renderSignupApprovals()}catch(e){alert(e.message)}};
   window.rejectSignup=async id=>{const note=prompt('반려 사유를 입력하세요.','')||'';if(!confirm('가입 요청을 반려할까요?'))return;try{await signupPost({action:'reject',user_id:id,note});alert('가입 요청이 반려되었습니다.');await refreshLive();if(page==='signupApprovals')renderSignupApprovals()}catch(e){alert(e.message)}};
-  async function refreshLive(){try{if(!token)return;ensureExtraMenus();const [next,sr]=await Promise.all([post(ADMIN,{action:'dashboard'},true),signupPost({action:'list'})]);data=next;signupRequests=sr.requests||[];handleAlarm(next);const active=document.activeElement;const editing=active&&['INPUT','TEXTAREA','SELECT'].includes(active.tagName);const modalOpen=document.querySelector('.modal-mask');if(page==='signupApprovals'&&!editing&&!modalOpen)renderSignupApprovals();else if(page==='marketData'){}else if(!editing&&!modalOpen&&['deposits','withdrawals','money','performance'].includes(page))render();}catch(e){console.warn('admin live refresh failed',e);}}
+  async function refreshLive(){if(liveBusy||!token)return;liveBusy=true;try{ensureExtraMenus();const [next,sr]=await Promise.all([post(ADMIN,{action:'dashboard'},true),signupPost({action:'list'})]);data=next;signupRequests=sr.requests||[];handleAlarm(next);const active=document.activeElement;const editing=active&&['INPUT','TEXTAREA','SELECT'].includes(active.tagName);const modalOpen=document.querySelector('.modal-mask');if(page==='signupApprovals'&&!editing&&!modalOpen)renderSignupApprovals();else if(page==='marketData'){}else if(!editing&&!modalOpen&&['deposits','withdrawals','money','performance'].includes(page))render();}catch(e){if(e?.status===401||String(e?.message||'').includes('unauthorized')){stopAlarm();console.warn('admin session inactive; live polling paused');}else console.warn('admin live refresh failed',e);}finally{liveBusy=false;}}
+  function stopLiveLoop(){liveStopped=true;if(liveTimer){clearTimeout(liveTimer);liveTimer=null;}}
+  function scheduleLive(delay=5000){if(liveStopped)return;if(liveTimer)clearTimeout(liveTimer);liveTimer=setTimeout(liveLoop,delay);}
+  async function liveLoop(){if(liveStopped)return;if(!token){scheduleLive(3000);return;}if(document.hidden){scheduleLive(12000);return;}await refreshLive();scheduleLive(5000);}
   async function wact(action,id,note=''){const r=await fetch(WADMIN,{method:'POST',headers:{'content-type':'application/json',apikey:K,Authorization:'Bearer '+token},body:JSON.stringify({action,id,admin_note:note})});let j={};try{j=await r.json()}catch{}if(!r.ok)throw Error(j.error||'request_failed');await load();return j;}
   window.approveWithdrawal=async id=>{if(!confirm('출금 승인을 처리할까요?'))return;try{await wact('approve',id);alert('출금 승인이 완료되었습니다.')}catch(e){alert(e.message)}};
   window.rejectWithdrawal=async id=>{const note=prompt('반려사유를 입력하세요.')||'';try{await wact('reject',id,note);alert('출금이 반려되었으며 예약된 금액은 잔고로 반환되었습니다.')}catch(e){alert(e.message)}};
   document.addEventListener('pointerdown',ensureAudio,{once:true,capture:true});
-  const boot=setInterval(()=>{if(token){clearInterval(boot);ensureExtraMenus();refreshLive();setInterval(refreshLive,5000);}},500);
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!liveStopped){if(liveTimer)clearTimeout(liveTimer);liveTimer=null;liveLoop();}});
+  window.addEventListener('beforeunload',stopLiveLoop,{once:true});
+  scheduleLive(500);
 })();
