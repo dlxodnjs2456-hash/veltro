@@ -1,0 +1,87 @@
+name: Build and publish VELTRO HTS
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'desktop/RELEASE'
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows-installer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: desktop/build/package-lock.json
+        continue-on-error: true
+
+      - name: Extract desktop source
+        shell: powershell
+        run: |
+          if (Test-Path desktop/build) { Remove-Item desktop/build -Recurse -Force }
+          Expand-Archive -Path desktop/desktop_source.zip -DestinationPath desktop/build -Force
+
+      - name: Install dependencies
+        working-directory: desktop/build
+        run: npm install --no-audit --no-fund
+
+      - name: Validate sources
+        working-directory: desktop/build
+        run: |
+          node --check src/main.js
+          node --check src/preload.js
+          node --check src/renderer.js
+
+      - name: Build NSIS installer
+        working-directory: desktop/build
+        run: npm run release:win
+
+      - name: Read version
+        id: version
+        shell: powershell
+        run: |
+          $v = node -p "require('./desktop/build/package.json').version"
+          "version=$v" >> $env:GITHUB_OUTPUT
+          "tag=v$v" >> $env:GITHUB_OUTPUT
+
+      - name: Replace release if rebuilding same version
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release delete "$TAG" --cleanup-tag --yes
+          fi
+
+      - name: Publish installer release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          gh release create "$TAG" \
+            desktop/build/dist/VELTRO_HTS_Setup.exe \
+            desktop/build/dist/VELTRO_HTS_Setup.exe.blockmap \
+            desktop/build/dist/latest.yml \
+            --target main \
+            --latest \
+            --title "VELTRO HTS v$VERSION" \
+            --notes "VELTRO HTS Windows installer. Existing installations update automatically from this release."
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VELTRO-HTS-Setup-${{ steps.version.outputs.version }}
+          path: |
+            desktop/build/dist/VELTRO_HTS_Setup.exe
+            desktop/build/dist/VELTRO_HTS_Setup.exe.blockmap
+            desktop/build/dist/latest.yml
