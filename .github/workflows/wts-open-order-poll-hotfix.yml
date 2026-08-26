@@ -1,0 +1,35 @@
+name: WTS open limit polling hotfix
+on:
+  push:
+    paths:
+      - '.github/workflows/wts-open-order-poll-hotfix.yml'
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch open order quote polling
+        shell: python
+        run: |
+          from pathlib import Path
+          for name in ['index.html','wts-v1.html']:
+            p=Path(name)
+            s=p.read_text(encoding='utf-8')
+            needle="function logout(){timers.forEach(clearInterval);timers=[];token='';profile=null;$('#app').classList.add('hidden');$('#login').classList.remove('hidden');$('#pw').value=''}\nasync function startTimers()"
+            insert="function logout(){timers.forEach(clearInterval);timers=[];token='';profile=null;$('#app').classList.add('hidden');$('#login').classList.remove('hidden');$('#pw').value=''}\nasync function pollOpenOrderQuotes(){const syms=[...new Set((trading.orders||[]).filter(o=>String(o.status).toUpperCase()==='OPEN'&&String(o.order_type).toUpperCase()==='LIMIT').map(o=>o.symbol).filter(x=>x&&x!==cur.symbol))];for(const symbol of syms.slice(0,8)){const i=INS.find(x=>x.symbol===symbol);if(!i)continue;try{await api(MARKET,{action:'quote',region:region(i),code:i.code})}catch{}}}\nasync function startTimers()"
+            if needle not in s: raise SystemExit(f'function insertion target missing in {name}')
+            s=s.replace(needle,insert,1)
+            needle2="await Promise.all([loadTrading(),loadDash()]);if(tab!=='chart'"
+            repl2="await Promise.all([loadTrading(),loadDash()]);pollOpenOrderQuotes();if(tab!=='chart'"
+            if needle2 not in s: raise SystemExit(f'timer insertion target missing in {name}')
+            s=s.replace(needle2,repl2,1)
+            p.write_text(s,encoding='utf-8')
+      - name: Commit
+        run: |
+          git config user.name "VELTRO Build Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add index.html wts-v1.html
+          git commit -m "Poll open limit symbols for automatic fills" || exit 0
+          git push
