@@ -36,7 +36,7 @@ const INS=[
 {symbol:'6JU26',code:'6J',name:'Japanese Yen',exchange:'CME',month:'202609',tick:.5,tickValue:8650},
 {symbol:'HSIQ26',code:'HSI',name:'Hang Seng Index',exchange:'HKEX',month:'202608',tick:1,tickValue:8831}
 ];
-let token='',profile=null,trading={account:null,positions:[],orders:[],fills:[]},dash={profile:null,account:null,deposits:[],withdrawals:[],notifications:[],notices:[],inquiries:[]},cur=INS[0],quote=null,page='trade',tab='quote',moneyTab='bank',chart=null,tf=1,timers=[];
+let token='',refreshToken='',profile=null,trading={account:null,positions:[],orders:[],fills:[]},dash={profile:null,account:null,deposits:[],withdrawals:[],notifications:[],notices:[],inquiries:[]},cur=INS[0],quote=null,page='trade',tab='quote',moneyTab='bank',chart=null,tf=1,timers=[];
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)], fmt=n=>Number(n||0).toLocaleString('ko-KR');
 function toast(t){const e=$('#toast');e.textContent=t;e.classList.remove('hidden');setTimeout(()=>e.classList.add('hidden'),1900)}
 async function api(url,body,auth=true){const r=await fetch(url,{method:'POST',headers:{'content-type':'application/json',apikey:K,Authorization:'Bearer '+(auth?token:K)},body:JSON.stringify(body)});let j={};try{j=await r.json()}catch{}if(!r.ok)throw Error(j.error||j.detail||'request_failed');return j}
@@ -75,7 +75,46 @@ async function changePw(){try{await api(AUTH,{action:'change_password',current_p
 async function drawChart(){if(page!=='trade'||tab!=='chart'||!$('#chartBox'))return;try{const r=await api(MARKET,{action:'kline',region:region(),code:cur.code,kType:tf,limit:500});const bs=(r.bars||[]).map(b=>({t:Number(b.t??b.timestamp),o:Number(b.o??b.open),h:Number(b.h??b.high),l:Number(b.l??b.low),c:Number(b.c??b.close),v:Math.max(0,Number(b.v??b.volume??0))})).filter(b=>[b.t,b.o,b.h,b.l,b.c].every(Number.isFinite)).map(b=>({...b,t:b.t<1e12?b.t*1000:b.t})).sort((a,b)=>a.t-b.t);if(!bs.length){$('#chartBox').innerHTML='<div style="height:100%;display:grid;place-items:center;color:#667085">실시간 시세가 누적되면 차트가 표시됩니다.</div>';return}const up='#d84d48',down='#2d66c9',ohlc=bs.map(b=>[b.t,b.o,b.h,b.l,b.c]),vol=bs.map(b=>({x:b.t,y:b.v,color:b.c>=b.o?'rgba(216,77,72,.48)':'rgba(45,102,201,.48)'}));chart=Highcharts.stockChart('chartBox',{chart:{animation:false,panning:{enabled:true,type:'x'},zooming:{type:'x'}},rangeSelector:{inputEnabled:false,selected:4},navigator:{enabled:true},scrollbar:{enabled:true},xAxis:{ordinal:false},yAxis:[{height:'72%'},{top:'75%',height:'25%',offset:0,title:{text:'VOL'}}],series:[{type:'candlestick',id:'price',name:cur.symbol,data:ohlc,dataGrouping:{enabled:false},upColor:up,upLineColor:up,color:down,lineColor:down,lastPrice:{enabled:true,color:'#1687d9'}},{type:'column',name:'Volume',data:vol,yAxis:1,dataGrouping:{enabled:false}},{type:'sma',linkedTo:'price',params:{period:20},name:'SMA20'}]});const t=$('#tf');if(t){t.value=String(tf);t.onchange=()=>{tf=Number(t.value);drawChart()}}const cr=$('#chartReload');if(cr)cr.onclick=drawChart;$('#chartState').textContent=(r.source==='live_samples'?'실시간 누적':'iTick K-line')+' · '+bs.length+'봉'}catch(e){$('#chartBox').innerHTML='<div style="padding:40px;color:#c33">차트 조회 실패: '+e.message+'</div>'}}
 async function mobileOrder(type){const q=Number(prompt('주문 수량','1'));if(!q)return;const side=confirm('매수면 확인, 매도면 취소를 누르세요.')?'BUY':'SELL';const price=type==='LIMIT'?Number(prompt('지정가',String(lp()))):lp();try{await api(TRADING,{action:'submit_order',symbol:cur.symbol,side,order_type:type,qty:q,price});await loadTrading();renderAll();toast('주문 처리 완료')}catch(e){toast('주문 실패: '+e.message)}}
 function setPage(p){page=p;renderAll();closeDrawer()}function closeDrawer(){$('#drawer').classList.add('hidden');$('#mask').classList.add('hidden')}
-function logout(){timers.forEach(clearInterval);timers=[];token='';profile=null;$('#app').classList.add('hidden');$('#login').classList.remove('hidden');$('#pw').value=''}
+function logout(){timers.forEach(clearInterval);timers=[];clearPersistedSession();$('#app').classList.add('hidden');$('#login').classList.remove('hidden');$('#pw').value=''}
+const SESSION_KEY='veltro_wts_session_v1';
+function persistSession(session,prof){
+  token=String(session?.access_token||token||'');
+  refreshToken=String(session?.refresh_token||refreshToken||'');
+  if(prof) profile=prof;
+  if(token&&refreshToken){localStorage.setItem(SESSION_KEY,JSON.stringify({access_token:token,refresh_token:refreshToken,profile:profile||null,saved_at:Date.now()}));}
+}
+function clearPersistedSession(){localStorage.removeItem(SESSION_KEY);token='';refreshToken='';profile=null;}
+async function renewSession(){
+  if(!refreshToken)return false;
+  try{
+    const r=await fetch(U+'/auth/v1/token?grant_type=refresh_token',{method:'POST',headers:{'content-type':'application/json',apikey:K},body:JSON.stringify({refresh_token:refreshToken})});
+    const j=await r.json().catch(()=>({}));
+    if(!r.ok||!j?.access_token)return false;
+    persistSession(j,profile);return true;
+  }catch{return false}
+}
+async function api(url,body,auth=true,retry=true){
+  const doFetch=()=>fetch(url,{method:'POST',headers:{'content-type':'application/json',apikey:K,Authorization:'Bearer '+(auth?token:K)},body:JSON.stringify(body)});
+  let r=await doFetch();
+  if(auth&&r.status===401&&retry&&await renewSession())r=await doFetch();
+  let j={};try{j=await r.json()}catch{}
+  if(!r.ok)throw Error(j.error||j.detail||'request_failed');
+  return j;
+}
+async function restoreSession(){
+  let saved=null;try{saved=JSON.parse(localStorage.getItem(SESSION_KEY)||'null')}catch{}
+  if(!saved?.access_token||!saved?.refresh_token)return false;
+  token=String(saved.access_token);refreshToken=String(saved.refresh_token);profile=saved.profile||null;
+  try{
+    $('#login').classList.add('hidden');$('#app').classList.remove('hidden');
+    await syncAll(true);startTimers();return true;
+  }catch(e){
+    if(await renewSession()){
+      try{await syncAll(true);startTimers();return true}catch{}
+    }
+    clearPersistedSession();$('#app').classList.add('hidden');$('#login').classList.remove('hidden');return false;
+  }
+}
 async function pollOpenOrderQuotes(){const syms=[...new Set((trading.orders||[]).filter(o=>String(o.status).toUpperCase()==='OPEN'&&String(o.order_type).toUpperCase()==='LIMIT').map(o=>o.symbol).filter(x=>x&&x!==cur.symbol))];for(const symbol of syms.slice(0,8)){const i=INS.find(x=>x.symbol===symbol);if(!i)continue;try{await api(MARKET,{action:'quote',region:region(i),code:i.code})}catch{}}}
 function refreshLiveTrade(){
   if(page!=='trade') return;
@@ -87,8 +126,8 @@ function refreshLiveTrade(){
   if(isMobile()&&mob&&tab==='positions') mob.innerHTML=mobile();
   bind();
 }
-async function startTimers(){timers.forEach(clearInterval);timers=[setInterval(async()=>{if(!token)return;try{await loadQuote();if(page==='trade')refreshLiveTrade()}catch{}},3000),setInterval(async()=>{if(!token)return;try{await Promise.all([loadTrading(),loadDash()]);pollOpenOrderQuotes();if(tab!=='chart'&&!['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName))renderAll()}catch{}},5000),setInterval(()=>{if(page==='trade'&&tab==='chart')drawChart()},30000)]}
-$('#loginBtn').onclick=async()=>{try{$('#loginMsg').textContent='';const r=await api(AUTH,{action:'login',login_id:$('#id').value.trim(),password:$('#pw').value},false);if(!r.session?.access_token)throw Error('session_failed');token=r.session.access_token;profile=r.profile;$('#login').classList.add('hidden');$('#app').classList.remove('hidden');await syncAll(true);startTimers()}catch(e){$('#loginMsg').textContent=e.message==='invalid_credentials'?'아이디 또는 비밀번호를 확인하세요.':e.message}};$('#pw').onkeydown=e=>{if(e.key==='Enter')$('#loginBtn').click()};
-$$('[data-page]').forEach(b=>b.onclick=()=>setPage(b.dataset.page));$('#tradeToggle').onclick=()=>{page='trade';renderAll()};$('#logout').onclick=logout;$('#mLogout').onclick=logout;$('#drawerBtn').onclick=()=>{$('#drawer').classList.remove('hidden');$('#mask').classList.remove('hidden')};$('#mask').onclick=closeDrawer;$('#bell').onclick=()=>setPage('alerts');$('#mTrade').onclick=()=>{page='trade';renderAll();closeDrawer()};$$('[data-morder]').forEach(b=>b.onclick=()=>mobileOrder(b.dataset.morder));$$('#mTabs button').forEach(b=>b.onclick=()=>{tab=b.dataset.tab;renderAll()});window.addEventListener('resize',()=>{if(token)renderAll()});
+async function startTimers(){timers.forEach(clearInterval);timers=[setInterval(async()=>{if(!token||document.hidden)return;try{await loadQuote();if(page==='trade')refreshLiveTrade()}catch(e){console.warn('quote poll',e)}},2000),setInterval(async()=>{if(!token||document.hidden)return;try{await Promise.all([loadTrading(),loadDash()]);pollOpenOrderQuotes();if(page!=='trade'&&!['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName))renderAll()}catch(e){console.warn('account poll',e)}},5000),setInterval(()=>{if(page==='trade'&&tab==='chart'&&!document.hidden)drawChart()},30000)]}
+$('#loginBtn').onclick=async()=>{try{$('#loginMsg').textContent='';const r=await api(AUTH,{action:'login',login_id:$('#id').value.trim(),password:$('#pw').value},false);if(!r.session?.access_token)throw Error('session_failed');persistSession(r.session,r.profile);$('#login').classList.add('hidden');$('#app').classList.remove('hidden');await syncAll(true);startTimers()}catch(e){$('#loginMsg').textContent=e.message==='invalid_credentials'?'아이디 또는 비밀번호를 확인하세요.':e.message}};$('#pw').onkeydown=e=>{if(e.key==='Enter')$('#loginBtn').click()};
+$$('[data-page]').forEach(b=>b.onclick=()=>setPage(b.dataset.page));$('#tradeToggle').onclick=()=>{page='trade';renderAll()};$('#logout').onclick=logout;$('#mLogout').onclick=logout;$('#drawerBtn').onclick=()=>{$('#drawer').classList.remove('hidden');$('#mask').classList.remove('hidden')};$('#mask').onclick=closeDrawer;$('#bell').onclick=()=>setPage('alerts');$('#mTrade').onclick=()=>{page='trade';renderAll();closeDrawer()};$$('[data-morder]').forEach(b=>b.onclick=()=>mobileOrder(b.dataset.morder));$$('#mTabs button').forEach(b=>b.onclick=()=>{tab=b.dataset.tab;renderAll()});window.addEventListener('resize',()=>{if(token)renderAll()});document.addEventListener('visibilitychange',()=>{if(!document.hidden&&token){loadQuote().then(()=>refreshLiveTrade()).catch(()=>{});}});restoreSession();
 </script>
 </body></html>
