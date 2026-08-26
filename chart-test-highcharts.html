@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VELTRO Highcharts Stock Test</title>
+<link rel="stylesheet" href="https://code.highcharts.com/css/stocktools/gui.css">
+<link rel="stylesheet" href="https://code.highcharts.com/css/annotations/popup.css">
+<style>
+:root{--bg:#eef2f6;--panel:#fff;--line:#d8dee7;--text:#111827;--muted:#667085;--brand:#1687d9;--brand2:#38bdf8}
+*{box-sizing:border-box}body{margin:0;font-family:Arial,'Malgun Gothic',sans-serif;background:var(--bg);color:var(--text)}button,input,select{font:inherit}.wrap{max-width:1440px;margin:0 auto;padding:12px}.top{display:flex;align-items:center;gap:12px;background:#fff;border:1px solid var(--line);padding:10px 12px}.logo{font-size:22px;font-weight:900}.logo b{color:var(--brand2)}.top .status{margin-left:auto;font-size:12px;color:var(--muted)}.login,.controls{margin-top:10px;background:#fff;border:1px solid var(--line);padding:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}.login input,.controls select,.controls button{height:36px;border:1px solid #c9d1db;border-radius:6px;background:#fff;padding:0 10px}.btn{height:36px;border:0!important;border-radius:6px!important;background:var(--brand)!important;color:#fff!important;padding:0 14px!important;cursor:pointer}.price{margin-left:auto;font-size:24px;font-weight:900;font-variant-numeric:tabular-nums}.chart-card{margin-top:10px;background:#fff;border:1px solid var(--line);position:relative;padding-left:42px}.highcharts-bindings-wrapper{width:42px}.highcharts-stocktools-toolbar li{width:40px}.highcharts-stocktools-toolbar li>.highcharts-menu-item-btn{width:40px;height:40px}.meta{padding:9px 12px;border-top:1px solid var(--line);font-size:12px;color:var(--muted);display:flex;gap:16px;flex-wrap:wrap}.error{color:#c0392b}.ok{color:#0c9b6a}.note{margin-top:10px;background:#fff;border:1px solid var(--line);padding:10px 12px;font-size:12px;color:#475467}#container{height:700px}.hint{font-size:11px;color:#667085}
+@media(max-width:760px){.wrap{padding:0}.top,.login,.controls{border-left:0;border-right:0}.login input{width:100%}.price{width:100%;margin-left:0}.chart-card{padding-left:0}.highcharts-bindings-wrapper{display:none}#container{height:560px}}
+</style>
+<script src="https://code.highcharts.com/stock/highstock.js"></script>
+<script src="https://code.highcharts.com/stock/modules/data.js"></script>
+<script src="https://code.highcharts.com/stock/indicators/indicators-all.js"></script>
+<script src="https://code.highcharts.com/modules/annotations-advanced.js"></script>
+<script src="https://code.highcharts.com/modules/price-indicator.js"></script>
+<script src="https://code.highcharts.com/modules/full-screen.js"></script>
+<script src="https://code.highcharts.com/modules/stock-tools.js"></script>
+<script src="https://code.highcharts.com/modules/accessibility.js"></script>
+</head>
+<body>
+<div class="wrap">
+  <div class="top"><div class="logo">VEL<b>TRO</b></div><strong>Highcharts Stock Test</strong><div id="conn" class="status">로그인 필요</div></div>
+  <div id="loginBox" class="login"><input id="loginId" placeholder="VELTRO 아이디"><input id="loginPw" type="password" placeholder="비밀번호"><button id="loginBtn" class="btn">로그인 후 차트 연결</button><span id="loginMsg" class="error"></span></div>
+  <div id="tradeBox" class="controls" style="display:none">
+    <select id="symbol"><option value="NQ|US">NQ · E-mini Nasdaq 100</option><option value="ES|US">ES · E-mini S&P 500</option><option value="CL|US">CL · Crude Oil</option><option value="GC|US">GC · Gold</option><option value="SI|US">SI · Silver</option><option value="6B|US">6B · British Pounds</option><option value="6E|US">6E · Euro FX</option><option value="6J|US">6J · Japanese Yen</option><option value="HSI|HK">HSI · Hang Seng Index</option></select>
+    <select id="kType"><option value="1">1분</option><option value="2">5분</option><option value="3">15분</option><option value="4">30분</option><option value="5">1시간</option></select>
+    <select id="limit"><option value="200">200봉</option><option value="500" selected>500봉</option><option value="1000">1000봉</option></select>
+    <button id="reload">새로고침</button><button id="addSma">SMA 추가</button><button id="addRsi">RSI 추가</button><button id="addMacd">MACD 추가</button><button id="addBb">볼린저 추가</button><div id="last" class="price">-</div>
+    <div class="hint">왼쪽 Stock Tools에서 드로잉/지표/확대 기능도 비교 가능</div>
+  </div>
+  <div class="chart-card"><div id="container"></div><div class="meta"><span id="source">Source: -</span><span id="bars">Bars: 0</span><span id="range">Range: -</span><span id="state">State: 대기</span></div></div>
+  <div class="note">Highcharts Stock 조작감/지표 기능 비교용 테스트입니다. 데이터는 기존 VELTRO iTick 서버를 그대로 사용합니다. 현재 iTick 과거 선물 K-line이 비어 있으면 live_samples 범위만 표시됩니다.</div>
+</div>
+<script>
+const U='https://mzjkvakigwtlibwlslhq.supabase.co',K='sb_publishable_E3h8Gqx-RQqvAxiNXvBhKQ_WZIfGd4t',AUTH=U+'/functions/v1/auth-api',MARKET=U+'/functions/v1/market-data-api';
+let token='',chart=null,currentBars=[],poll=null;
+const $=s=>document.querySelector(s);
+async function post(url,body,auth=true){const r=await fetch(url,{method:'POST',headers:{'content-type':'application/json',apikey:K,Authorization:'Bearer '+(auth?token:K)},body:JSON.stringify(body)});let j={};try{j=await r.json()}catch{}if(!r.ok)throw Error(j.error||j.detail||'request_failed');return j}
+function selected(){const [code,region]=$('#symbol').value.split('|');return{code,region}}
+function normalize(arr){if(!Array.isArray(arr))return[];const out=[];for(const x of arr){const t=Number(x?.t??x?.time??x?.timestamp),o=Number(x?.o??x?.open),h=Number(x?.h??x?.high),l=Number(x?.l??x?.low),c=Number(x?.c??x?.close),v=Number(x?.v??x?.volume??0);if(!Number.isFinite(t)||![o,h,l,c].every(Number.isFinite))continue;out.push({t:t>1e12?t:t*1000,o,h,l,c,v:Number.isFinite(v)?v:0})}out.sort((a,b)=>a.t-b.t);const u=[];let prev=null;for(const b of out){if(b.t===prev)u[u.length-1]=b;else{u.push(b);prev=b.t}}return u}
+function meta(bars,source){$('#bars').textContent='Bars: '+bars.length;$('#source').textContent='Source: '+(source||'-');if(bars.length){$('#range').textContent='Range: '+new Date(bars[0].t).toLocaleString('ko-KR')+' ~ '+new Date(bars[bars.length-1].t).toLocaleString('ko-KR');$('#last').textContent=bars[bars.length-1].c.toLocaleString('en-US')}else $('#range').textContent='Range: -'}
+function buildChart(bars){const ohlc=bars.map(b=>[b.t,b.o,b.h,b.l,b.c]),vol=bars.map(b=>[b.t,b.v]);if(chart)chart.destroy();chart=Highcharts.stockChart('container',{chart:{panning:{enabled:true,type:'x'},zooming:{type:'x'}},stockTools:{gui:{enabled:true}},navigation:{bindingsClassName:'highcharts-bindings-wrapper'},rangeSelector:{selected:1,buttons:[{type:'minute',count:30,text:'30m'},{type:'hour',count:1,text:'1h'},{type:'hour',count:4,text:'4h'},{type:'day',count:1,text:'1D'},{type:'all',text:'All'}]},navigator:{enabled:true},scrollbar:{enabled:true},tooltip:{split:true},yAxis:[{height:'72%',resize:{enabled:true},labels:{align:'right',x:-3},title:{text:null}},{top:'75%',height:'25%',offset:0,labels:{align:'right',x:-3},title:{text:'VOL'}}],series:[{type:'candlestick',id:'price',name:'Price',data:ohlc,dataGrouping:{enabled:false},lastPrice:{enabled:true,color:'#1687d9'},lastVisiblePrice:{enabled:true,label:{enabled:true}}},{type:'column',id:'volume',name:'Volume',data:vol,yAxis:1,dataGrouping:{enabled:false},color:'rgba(56,189,248,.35)'}],responsive:{rules:[{condition:{maxWidth:760},chartOptions:{rangeSelector:{inputEnabled:false},scrollbar:{enabled:false}}}]}})}
+async function loadKline(){const {code,region}=selected();$('#state').textContent='State: 조회 중...';$('#state').className='';const r=await post(MARKET,{action:'kline',region,code,kType:Number($('#kType').value),limit:Number($('#limit').value)});const bars=normalize(r?.bars||[]);if(!bars.length)throw Error('차트 데이터가 0건입니다. source='+(r?.source||'unknown'));currentBars=bars;buildChart(bars);meta(bars,r?.source);$('#state').textContent='State: 정상';$('#state').className='ok'}
+function intervalMs(){return({1:60000,2:300000,3:900000,4:1800000,5:3600000})[Number($('#kType').value)]||60000}
+async function loadQuote(){const {code,region}=selected();const r=await post(MARKET,{action:'quote',region,code});const q=r?.quote||r?.data||r,p=Number(q?.ld??q?.last??q?.price),ms=Number(q?.t)||Date.now();if(!Number.isFinite(p)||p<=0||!chart||!currentBars.length)return;$('#last').textContent=p.toLocaleString('en-US');const bucket=Math.floor((ms>1e12?ms:ms*1000)/intervalMs())*intervalMs(),last=currentBars[currentBars.length-1];let b;if(bucket===last.t){b={...last,h:Math.max(last.h,p),l:Math.min(last.l,p),c:p}}else if(bucket>last.t){b={t:bucket,o:p,h:p,l:p,c:p,v:Number(q?.v||0)};currentBars.push(b)}else return;currentBars[currentBars.length-1]=b;chart.get('price').addPoint([b.t,b.o,b.h,b.l,b.c],true,currentBars.length>Number($('#limit').value));chart.get('volume').addPoint([b.t,b.v],false,currentBars.length>Number($('#limit').value))}
+async function start(){clearInterval(poll);await loadKline();await loadQuote();poll=setInterval(()=>loadQuote().catch(e=>{$('#conn').textContent='실시간 오류: '+e.message}),3000)}
+function addIndicator(type){if(!chart)return;try{const id='ind-'+type+'-'+Date.now();if(type==='sma'||type==='bb')chart.addSeries({type,linkedTo:'price',id,name:type.toUpperCase(),params:type==='sma'?{period:20}:{period:20,standardDeviation:2}},false);else if(type==='rsi'||type==='macd'){const axisId='axis-'+id;chart.addAxis({id:axisId,top:type==='rsi'?'72%':'72%',height:'28%',offset:0,title:{text:type.toUpperCase()}},false,false);chart.addSeries({type,linkedTo:'price',id,yAxis:axisId,name:type.toUpperCase()},false)}chart.redraw()}catch(e){alert('지표 추가 실패: '+e.message)}}
+$('#addSma').onclick=()=>addIndicator('sma');$('#addRsi').onclick=()=>addIndicator('rsi');$('#addMacd').onclick=()=>addIndicator('macd');$('#addBb').onclick=()=>addIndicator('bb');
+$('#loginBtn').onclick=async()=>{try{$('#loginMsg').textContent='';const r=await post(AUTH,{action:'login',login_id:$('#loginId').value.trim(),password:$('#loginPw').value},false);if(!r.session?.access_token)throw Error('세션 발급 실패');token=r.session.access_token;$('#conn').textContent='LIVE · iTick';$('#conn').className='status ok';$('#loginBox').style.display='none';$('#tradeBox').style.display='flex';await start()}catch(e){$('#loginMsg').textContent=e.message==='invalid_credentials'?'아이디 또는 비밀번호를 확인하세요.':e.message}};
+$('#loginPw').onkeydown=e=>{if(e.key==='Enter')$('#loginBtn').click()};$('#reload').onclick=()=>start().catch(e=>{$('#state').textContent='State: '+e.message;$('#state').className='error'});$('#symbol').onchange=$('#kType').onchange=$('#limit').onchange=()=>start().catch(e=>{$('#state').textContent='State: '+e.message;$('#state').className='error'});
+</script>
+</body></html>
