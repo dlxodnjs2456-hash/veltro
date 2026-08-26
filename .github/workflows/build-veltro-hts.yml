@@ -5,6 +5,8 @@ on:
   push:
     paths:
       - 'desktop/RELEASE'
+      - 'desktop/v102_parts/**'
+      - '.github/workflows/build-veltro-hts.yml'
 
 permissions:
   contents: write
@@ -18,15 +20,18 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: 'npm'
-          cache-dependency-path: desktop/build/package-lock.json
-        continue-on-error: true
 
-      - name: Extract desktop source
+      - name: Rebuild and extract desktop source
         shell: powershell
         run: |
           if (Test-Path desktop/build) { Remove-Item desktop/build -Recurse -Force }
-          Expand-Archive -Path desktop/desktop_source.zip -DestinationPath desktop/build -Force
+          $parts = Get-ChildItem desktop/v102_parts/part_* | Sort-Object Name
+          if ($parts.Count -lt 1) { throw 'No source parts found' }
+          $b64 = ($parts | ForEach-Object { Get-Content $_.FullName -Raw }) -join ''
+          $bytes = [Convert]::FromBase64String(($b64 -replace '\s',''))
+          [IO.File]::WriteAllBytes((Join-Path $PWD 'desktop/source.zip'), $bytes)
+          Expand-Archive -Path desktop/source.zip -DestinationPath desktop/build -Force
+          if (!(Test-Path desktop/build/package.json)) { throw 'package.json missing after extraction' }
 
       - name: Install dependencies
         working-directory: desktop/build
@@ -41,6 +46,8 @@ jobs:
 
       - name: Build NSIS installer
         working-directory: desktop/build
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: npm run release:win
 
       - name: Read version
