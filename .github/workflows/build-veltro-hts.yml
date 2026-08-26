@@ -5,7 +5,6 @@ on:
   push:
     paths:
       - 'desktop/RELEASE'
-      - 'desktop/v102_parts/**'
       - '.github/workflows/build-veltro-hts.yml'
 
 permissions:
@@ -21,16 +20,25 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Rebuild and extract desktop source
+      - name: Rebuild and validate desktop source
         shell: powershell
         run: |
           if (Test-Path desktop/build) { Remove-Item desktop/build -Recurse -Force }
-          $parts = Get-ChildItem desktop/v102_parts/part_* | Sort-Object Name
-          if ($parts.Count -lt 1) { throw 'No source parts found' }
-          $b64 = ($parts | ForEach-Object { Get-Content $_.FullName -Raw }) -join ''
-          $bytes = [Convert]::FromBase64String(($b64 -replace '\s',''))
-          [IO.File]::WriteAllBytes((Join-Path $PWD 'desktop/source.zip'), $bytes)
-          Expand-Archive -Path desktop/source.zip -DestinationPath desktop/build -Force
+          $p0 = Get-Content desktop/v102_parts/part_00 -Raw
+          if ($p0.Length -lt 9000) { throw 'part_00 is too short' }
+          $b64 = $p0.Substring(0,9000)
+          foreach ($i in 1..5) { $b64 += Get-Content ("desktop/v102_parts/part_{0:D2}" -f $i) -Raw }
+          $b64 += Get-Content desktop/v102_parts/part_06 -Raw
+          $b64 += Get-Content desktop/v102_parts/part_06b -Raw
+          foreach ($i in 7..16) { $b64 += Get-Content ("desktop/v102_parts/part_{0:D2}" -f $i) -Raw }
+          $b64 = $b64 -replace '\s',''
+          if ($b64.Length -ne 150648) { throw "Unexpected source base64 length: $($b64.Length)" }
+          $bytes = [Convert]::FromBase64String($b64)
+          $zipPath = Join-Path $PWD 'desktop/source.zip'
+          [IO.File]::WriteAllBytes($zipPath, $bytes)
+          $sha = (Get-FileHash $zipPath -Algorithm SHA256).Hash.ToLower()
+          if ($sha -ne '3919c6cb70eebfc8f9522e558187a5640127747c623170f8dac207182c4d48fb') { throw "Source SHA256 mismatch: $sha" }
+          Expand-Archive -Path $zipPath -DestinationPath desktop/build -Force
           if (!(Test-Path desktop/build/package.json)) { throw 'package.json missing after extraction' }
 
       - name: Install dependencies
