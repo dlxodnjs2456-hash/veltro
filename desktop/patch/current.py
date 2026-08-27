@@ -9,9 +9,9 @@ if not re.fullmatch(r'\d+\.\d+\.\d+',version): raise RuntimeError(f'Invalid VELT
 
 poster_b64=re.sub(r'\s+','',(root/'desktop'/'patch'/'login_left_safe.b64').read_text(encoding='utf-8'))
 poster=base64.b64decode(poster_b64,validate=True)
-expected_sha256='cfb09ef3360604f7681baa38737fa48275d65064693c5ab0cc172c61617ed7e0'
+expected_sha256='b37d4a5df16d9b1cfca3f8cf1b75402f863b379fa26ab5b48cf24112d3fc1980'
 actual_sha256=hashlib.sha256(poster).hexdigest()
-if len(poster)!=7201 or not poster.startswith(b'\xff\xd8\xff') or actual_sha256!=expected_sha256:
+if len(poster)!=9965 or not poster.startswith(b'\xff\xd8\xff') or actual_sha256!=expected_sha256:
     raise RuntimeError(f'login poster asset verification failed: bytes={len(poster)} sha256={actual_sha256}')
 asset_path.parent.mkdir(parents=True,exist_ok=True); resource_path.parent.mkdir(parents=True,exist_ok=True)
 asset_path.write_bytes(poster); resource_path.write_bytes(poster)
