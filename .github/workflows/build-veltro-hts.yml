@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - 'desktop/RELEASE'
+      - '.github/workflows/build-veltro-hts.yml'
 
 permissions:
   contents: write
@@ -18,6 +19,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -39,30 +42,46 @@ jobs:
           import pathlib, re, subprocess, sys, textwrap
 
           root = pathlib.Path.cwd()
-          wf_path = root / '.github' / 'workflows' / 'build-veltro-hts-v112.yml'
-          wf = wf_path.read_text(encoding='utf-8')
-
-          m1 = re.search(
-              r"- name: Rebuild v1\.0\.11 source exactly.*?run: \|\s*@'\s*\n(.*?)\n\s*'@ \| Set-Content -Path extract_v111\.py",
-              wf,
-              re.S,
+          base_workflow_path = root / '.github' / 'workflows' / 'build-veltro-hts.yml'
+          current_workflow = base_workflow_path.read_text(encoding='utf-8')
+          legacy_ref = 'd8e4b5720be775c2161d21e0fa251f882bf35f9c'
+          legacy_workflow = subprocess.check_output(
+              ['git', 'show', f'{legacy_ref}:.github/workflows/build-veltro-hts.yml'],
+              text=True,
+              encoding='utf-8',
           )
-          if not m1:
-              raise RuntimeError('Could not extract the verified v1.0.11 rebuild bootstrap')
-          bootstrap = textwrap.dedent(m1.group(1))
-          exec(compile(bootstrap, 'extract_v111.py', 'exec'), {'__name__': '__main__'})
-          subprocess.run([sys.executable, 'make_v111.py'], check=True)
-          subprocess.run([sys.executable, 'patch_v111.py'], check=True)
 
-          m2 = re.search(
-              r"- name: Apply v1\.0\.12 login-poster-only runtime fix.*?run: \|\s*@'\s*\n(.*?)\n\s*'@ \| Set-Content -Path patch_v112\.py",
-              wf,
-              re.S,
-          )
-          if not m2:
-              raise RuntimeError('Could not extract the verified v1.0.12 patch')
-          patch112 = textwrap.dedent(m2.group(1))
-          exec(compile(patch112, 'patch_v112.py', 'exec'), {'__name__': '__main__'})
+          try:
+              # v1.0.9-v1.0.12 rebuild scripts reference the old approved login layout
+              # from build-veltro-hts.yml, so temporarily restore that historical file.
+              base_workflow_path.write_text(legacy_workflow, encoding='utf-8')
+
+              wf_path = root / '.github' / 'workflows' / 'build-veltro-hts-v112.yml'
+              wf = wf_path.read_text(encoding='utf-8')
+
+              m1 = re.search(
+                  r"- name: Rebuild v1\.0\.11 source exactly.*?run: \|\s*@'\s*\n(.*?)\n\s*'@ \| Set-Content -Path extract_v111\.py",
+                  wf,
+                  re.S,
+              )
+              if not m1:
+                  raise RuntimeError('Could not extract the verified v1.0.11 rebuild bootstrap')
+              bootstrap = textwrap.dedent(m1.group(1))
+              exec(compile(bootstrap, 'extract_v111.py', 'exec'), {'__name__': '__main__'})
+              subprocess.run([sys.executable, 'make_v111.py'], check=True)
+              subprocess.run([sys.executable, 'patch_v111.py'], check=True)
+
+              m2 = re.search(
+                  r"- name: Apply v1\.0\.12 login-poster-only runtime fix.*?run: \|\s*@'\s*\n(.*?)\n\s*'@ \| Set-Content -Path patch_v112\.py",
+                  wf,
+                  re.S,
+              )
+              if not m2:
+                  raise RuntimeError('Could not extract the verified v1.0.12 patch')
+              patch112 = textwrap.dedent(m2.group(1))
+              exec(compile(patch112, 'patch_v112.py', 'exec'), {'__name__': '__main__'})
+          finally:
+              base_workflow_path.write_text(current_workflow, encoding='utf-8')
 
           if not (root / 'desktop' / 'build' / 'package.json').exists():
               raise RuntimeError('v1.0.12 base rebuild did not produce desktop/build')
