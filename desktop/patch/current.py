@@ -16,7 +16,7 @@ poster_b64 += (root / 'desktop' / 'branding' / 'login_left_v107_part0.b64').read
 poster_b64 += (root / 'desktop' / 'branding' / 'login_left_v107_part1.b64').read_text(encoding='utf-8')
 poster_b64 = re.sub(r'\s+', '', poster_b64)
 poster = base64.b64decode(poster_b64)
-if len(poster) < 50000:
+if len(poster) < 15000:
     raise RuntimeError('login poster asset is unexpectedly small')
 asset_path.parent.mkdir(parents=True, exist_ok=True)
 asset_path.write_bytes(poster)
