@@ -1,4 +1,4 @@
-import base64, json, os, pathlib, re
+import base64, hashlib, json, os, pathlib, re
 
 root = pathlib.Path.cwd()
 build = root / 'desktop' / 'build'
@@ -14,9 +14,11 @@ if not re.fullmatch(r'\d+\.\d+\.\d+', version):
     raise RuntimeError(f'Invalid VELTRO_VERSION: {version!r}')
 
 poster_b64 = re.sub(r'\s+', '', (root / 'desktop' / 'patch' / 'login_left.b64').read_text(encoding='utf-8'))
-poster = base64.b64decode(poster_b64)
-if len(poster) < 20000 or not poster.startswith(b'\xff\xd8\xff'):
-    raise RuntimeError('login poster asset is missing or invalid JPEG')
+poster = base64.b64decode(poster_b64, validate=True)
+expected_sha256 = '22f0623159bb5f08b946044266b47f859919e7fc2352d389292b5f084ace4644'
+actual_sha256 = hashlib.sha256(poster).hexdigest()
+if len(poster) != 11309 or not poster.startswith(b'\xff\xd8\xff') or actual_sha256 != expected_sha256:
+    raise RuntimeError(f'login poster asset verification failed: bytes={len(poster)} sha256={actual_sha256}')
 asset_path.parent.mkdir(parents=True, exist_ok=True)
 resource_path.parent.mkdir(parents=True, exist_ok=True)
 asset_path.write_bytes(poster)
@@ -134,5 +136,5 @@ if 'object-fit:cover !important' not in final_styles:
 if {'from': 'resources/login-left.jpg', 'to': 'login-left.jpg'} not in final_pkg['build']['extraResources']:
     raise RuntimeError('extraResources poster packaging missing')
 if asset_path.read_bytes() != poster or resource_path.read_bytes() != poster:
-    raise RuntimeError('poster asset verification failed')
-print(f'VELTRO {version} exact poster extraResources patch verified')
+    raise RuntimeError('poster asset write verification failed')
+print(f'VELTRO {version} exact poster extraResources patch verified: {actual_sha256}')
