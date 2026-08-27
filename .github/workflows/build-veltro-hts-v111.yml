@@ -1,0 +1,105 @@
+name: Build VELTRO HTS v1.0.11 poster CSS priority fix
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/build-veltro-hts-v111.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Rebuild source and apply v1.0.11 poster CSS priority fix
+        shell: pwsh
+        run: |
+          @'
+          import pathlib, re, textwrap
+
+          root = pathlib.Path.cwd()
+          wf = (root / '.github' / 'workflows' / 'build-veltro-hts-v110.yml').read_text(encoding='utf-8')
+          m = re.search(r"@'\s*\n(.*?)\n\s*'@ \| Set-Content -Path patch_v110\.py", wf, re.S)
+          if not m:
+              raise RuntimeError('Could not extract v1.0.10 patch script')
+
+          script = textwrap.dedent(m.group(1))
+          script = script.replace("'1.0.10'", "'1.0.11'")
+          script = script.replace('v 1.0.10', 'v 1.0.11')
+          script = script.replace('v1.0.10', 'v1.0.11')
+          script = script.replace('source-v110.zip', 'source-v111.zip')
+          script = script.replace('login_left_v110.jpg', 'login_left_v111.jpg')
+
+          old_asset_line = "asset_line = \"window.desktop?.assetUrl?.('login_left_v111.jpg').then(u => { const poster=document.getElementById('loginPoster'); if(poster&&u) poster.style.backgroundImage=`url(\\\\\\\"${u}\\\\\\\")`; }).catch(()=>{});\""
+          new_asset_line = "asset_line = \"window.desktop?.assetUrl?.('login_left_v111.jpg').then(u => { const poster=document.getElementById('loginPoster'); if(poster&&u) poster.style.setProperty('background-image',`url(\\\\\\\"${u}\\\\\\\")`,'important'); }).catch(()=>{});\""
+          if old_asset_line not in script:
+              raise RuntimeError('Could not find v1.0.10 poster assignment line')
+          script = script.replace(old_asset_line, new_asset_line)
+
+          # Validate the actual fix: background image must be applied with !important because the approved login CSS uses an important background shorthand.
+          script += "\nfinal_renderer = renderer_path.read_text(encoding='utf-8')\n"
+          script += "if \"setProperty('background-image'\" not in final_renderer or \"'important'\" not in final_renderer:\n    raise RuntimeError('v1.0.11 important background-image assignment missing')\n"
+          script += "if \"assetUrl?.('login_left_v111.jpg')\" not in final_renderer:\n    raise RuntimeError('v1.0.11 poster request missing')\n"
+          script += "print('v1.0.11 poster CSS priority fix verified')\n"
+
+          (root / 'patch_v111.py').write_text(script, encoding='utf-8')
+          '@ | Set-Content -Path make_v111.py -Encoding UTF8
+          python make_v111.py
+          python patch_v111.py
+
+      - name: Install dependencies
+        working-directory: desktop/build
+        run: npm install --no-audit --no-fund
+
+      - name: Validate JavaScript
+        working-directory: desktop/build
+        run: |
+          node --check src/main.js
+          node --check src/preload.js
+          node --check src/renderer.js
+
+      - name: Build NSIS installer
+        working-directory: desktop/build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: npm run release:win
+
+      - name: Replace v1.0.11 release if necessary
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view v1.0.11 >/dev/null 2>&1; then
+            gh release delete v1.0.11 --cleanup-tag --yes
+          fi
+
+      - name: Publish v1.0.11 auto-update release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create v1.0.11 \
+            desktop/build/dist/VELTRO_HTS_Setup.exe \
+            desktop/build/dist/VELTRO_HTS_Setup.exe.blockmap \
+            desktop/build/dist/latest.yml \
+            --target main \
+            --latest \
+            --title "VELTRO HTS v1.0.11" \
+            --notes "Login-screen-only hotfix. No trading, account, DB, order, position, balance, deposit/withdrawal, or market-data logic is changed. Fixes the left VELTRO poster being hidden by an !important background shorthand by applying only the poster background-image with CSS priority."
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VELTRO-HTS-Setup-1.0.11
+          path: |
+            desktop/build/dist/VELTRO_HTS_Setup.exe
+            desktop/build/dist/VELTRO_HTS_Setup.exe.blockmap
+            desktop/build/dist/latest.yml
