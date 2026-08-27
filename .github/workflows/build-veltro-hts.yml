@@ -91,10 +91,10 @@ jobs:
           $poster = Join-Path $PWD 'desktop/build/dist/win-unpacked/resources/login-left.jpg'
           if (!(Test-Path $poster)) { throw "Packaged login poster missing: $poster" }
           $hash = (Get-FileHash $poster -Algorithm SHA256).Hash.ToLower()
-          $expected = 'cfb09ef3360604f7681baa38737fa48275d65064693c5ab0cc172c61617ed7e0'
+          $expected = 'b37d4a5df16d9b1cfca3f8cf1b75402f863b379fa26ab5b48cf24112d3fc1980'
           if ($hash -ne $expected) { throw "Packaged login poster hash mismatch: $hash" }
           $size = (Get-Item $poster).Length
-          if ($size -ne 7201) { throw "Packaged login poster size mismatch: $size" }
+          if ($size -ne 9965) { throw "Packaged login poster size mismatch: $size" }
           Write-Host "Packaged login poster verified: $hash ($size bytes)"
 
       - name: Publish auto-update release
