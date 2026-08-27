@@ -26,29 +26,42 @@ jobs:
           import pathlib, re, textwrap
 
           root = pathlib.Path.cwd()
-          wf = (root / '.github' / 'workflows' / 'build-veltro-hts-v110.yml').read_text(encoding='utf-8')
-          m = re.search(r"@'\s*\n(.*?)\n\s*'@ \| Set-Content -Path patch_v110\.py", wf, re.S)
+          wf = (root / '.github' / 'workflows' / 'build-veltro-hts-v109.yml').read_text(encoding='utf-8')
+          m = re.search(r"@'\s*\n(.*?)\n\s*'@ \| Set-Content -Path patch_v109\.py", wf, re.S)
           if not m:
-              raise RuntimeError('Could not extract v1.0.10 patch script')
+              raise RuntimeError('Could not extract v1.0.9 patch script')
 
           script = textwrap.dedent(m.group(1))
-          script = script.replace("'1.0.10'", "'1.0.11'")
-          script = script.replace('v 1.0.10', 'v 1.0.11')
-          script = script.replace('v1.0.10', 'v1.0.11')
-          script = script.replace('source-v110.zip', 'source-v111.zip')
-          script = script.replace('login_left_v110.jpg', 'login_left_v111.jpg')
+          script = script.replace("'1.0.9'", "'1.0.11'")
+          script = script.replace('v 1.0.9', 'v 1.0.11')
+          script = script.replace('v1.0.9', 'v1.0.11')
+          script = script.replace('source-v109.zip', 'source-v111.zip')
+          script = script.replace('login_left_v109.jpg', 'login_left_v111.jpg')
 
-          old_asset_line = "asset_line = \"window.desktop?.assetUrl?.('login_left_v111.jpg').then(u => { const poster=document.getElementById('loginPoster'); if(poster&&u) poster.style.backgroundImage=`url(\\\\\\\"${u}\\\\\\\")`; }).catch(()=>{});\""
-          new_asset_line = "asset_line = \"window.desktop?.assetUrl?.('login_left_v111.jpg').then(u => { const poster=document.getElementById('loginPoster'); if(poster&&u) poster.style.setProperty('background-image',`url(\\\\\\\"${u}\\\\\\\")`,'important'); }).catch(()=>{});\""
-          if old_asset_line not in script:
-              raise RuntimeError('Could not find v1.0.10 poster assignment line')
-          script = script.replace(old_asset_line, new_asset_line)
+          # Use packaged asset bytes -> data URI. This changes only how the login poster is loaded.
+          old_handler = "asset_handler = \"ipcMain.handle('app:asset-url',(_e,fileName)=>{const safeName=path.basename(String(fileName||''));const fullPath=path.join(__dirname,'..','assets',safeName);return pathToFileURL(fullPath).toString();});\""
+          new_handler = "asset_handler = \"ipcMain.handle('app:asset-url',(_e,fileName)=>{const safeName=path.basename(String(fileName||''));const fullPath=path.join(__dirname,'..','assets',safeName);const ext=path.extname(safeName).toLowerCase();const mime=ext==='.png'?'image/png':'image/jpeg';const buf=fs.readFileSync(fullPath);return `data:${mime};base64,${buf.toString('base64')}`;});\""
+          if old_handler not in script:
+              raise RuntimeError('asset handler template not found')
+          script = script.replace(old_handler, new_handler)
 
-          # Validate the actual fix: background image must be applied with !important because the approved login CSS uses an important background shorthand.
+          script = script.replace("          if \"const { pathToFileURL } = require('url');\" not in main:\n              main = main.replace(\"const path = require('path');\", \"const path = require('path');\\nconst { pathToFileURL } = require('url');\", 1)\n", "")
+          script = script.replace("if \"app:asset-url\" not in final_main or \"pathToFileURL\" not in final_main: raise RuntimeError('main asset URL handler is missing')", "if \"app:asset-url\" not in final_main or \"readFileSync(fullPath)\" not in final_main: raise RuntimeError('main asset data handler is missing')")
+
+          # Root cause of v1.0.9/v1.0.10 blank panel: the approved login CSS contains an !important background shorthand.
+          # A normal inline backgroundImage cannot override it. Apply ONLY background-image with CSS priority.
+          old_asset = "asset_line = \"window.desktop?.assetUrl?.('login_left_v111.jpg').then(u => { const poster=document.getElementById('loginPoster'); if(poster&&u) poster.style.backgroundImage=`url(\\\\\\\"${u}\\\\\\\")`; }).catch(()=>{});\""
+          new_asset = "asset_line = \"window.desktop?.assetUrl?.('login_left_v111.jpg').then(u => { const poster=document.getElementById('loginPoster'); if(poster&&u) poster.style.setProperty('background-image',`url(\\\\\\\"${u}\\\\\\\")`,'important'); }).catch(()=>{});\""
+          if old_asset not in script:
+              raise RuntimeError('poster assignment template not found')
+          script = script.replace(old_asset, new_asset)
+
           script += "\nfinal_renderer = renderer_path.read_text(encoding='utf-8')\n"
-          script += "if \"setProperty('background-image'\" not in final_renderer or \"'important'\" not in final_renderer:\n    raise RuntimeError('v1.0.11 important background-image assignment missing')\n"
+          script += "final_main = main_path.read_text(encoding='utf-8')\n"
           script += "if \"assetUrl?.('login_left_v111.jpg')\" not in final_renderer:\n    raise RuntimeError('v1.0.11 poster request missing')\n"
-          script += "print('v1.0.11 poster CSS priority fix verified')\n"
+          script += "if \"setProperty('background-image'\" not in final_renderer or \"'important'\" not in final_renderer:\n    raise RuntimeError('v1.0.11 background priority fix missing')\n"
+          script += "if \"data:${mime};base64\" not in final_main:\n    raise RuntimeError('v1.0.11 data URI handler missing')\n"
+          script += "print('v1.0.11 login-poster-only fix verified')\n"
 
           (root / 'patch_v111.py').write_text(script, encoding='utf-8')
           '@ | Set-Content -Path make_v111.py -Encoding UTF8
@@ -93,7 +106,7 @@ jobs:
             --target main \
             --latest \
             --title "VELTRO HTS v1.0.11" \
-            --notes "Login-screen-only hotfix. No trading, account, DB, order, position, balance, deposit/withdrawal, or market-data logic is changed. Fixes the left VELTRO poster being hidden by an !important background shorthand by applying only the poster background-image with CSS priority."
+            --notes "Login-screen-only hotfix. Only the left poster rendering priority is corrected. No trading, market-data, account, DB, member, balance, order, position, deposit/withdrawal, notification, or updater logic is otherwise changed."
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
