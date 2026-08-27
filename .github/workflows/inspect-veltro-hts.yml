@@ -31,10 +31,16 @@ jobs:
         shell: pwsh
         run: |
           Write-Host '--- ASSETS ---'
-          Get-ChildItem desktop/inspect/assets -Recurse | Select-Object FullName,Length
+          Get-ChildItem desktop/inspect/assets -Recurse | ForEach-Object { Write-Host "$($_.FullName) $($_.Length)" }
           Write-Host '--- PACKAGE BUILD ---'
           Get-Content desktop/inspect/package.json -Raw -Encoding UTF8
           Write-Host '--- LOGO REFERENCES ---'
           Get-ChildItem desktop/inspect/src -File | ForEach-Object {
-            Select-String -Path $_.FullName -Pattern 'logo|veltro_logo|brand|login|auth|splash' -Encoding UTF8 -Context 2,2
+            Select-String -Path $_.FullName -Pattern 'logo|veltro_logo|brand|login|auth|splash' -Encoding UTF8 -Context 2,2 | ForEach-Object { Write-Host $_.ToString() }
           }
+      - name: Upload reconstructed source
+        uses: actions/upload-artifact@v4
+        with:
+          name: veltro-hts-reconstructed-source
+          path: desktop/source-inspect.zip
+          compression-level: 0
