@@ -1,0 +1,194 @@
+name: Build and publish VELTRO HTS v1.0.6
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/build-veltro-hts-v106.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows-installer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Rebuild desktop source
+        shell: pwsh
+        run: |
+          if (Test-Path desktop/build) { Remove-Item desktop/build -Recurse -Force }
+          $p0 = Get-Content desktop/v102_parts/part_00 -Raw -Encoding UTF8
+          if ($p0.Length -lt 9000) { throw 'part_00 is too short' }
+          $b64 = $p0.Substring(0,9000)
+          foreach ($i in 1..5) { $b64 += Get-Content ("desktop/v102_parts/part_{0:D2}" -f $i) -Raw -Encoding UTF8 }
+          $b64 += Get-Content desktop/v102_parts/part_06 -Raw -Encoding UTF8
+          $b64 += Get-Content desktop/v102_parts/part_06b -Raw -Encoding UTF8
+          foreach ($i in 7..13) { $b64 += Get-Content ("desktop/v102_parts/part_{0:D2}" -f $i) -Raw -Encoding UTF8 }
+          $b64 += Get-Content desktop/v102_parts/part_14a -Raw -Encoding UTF8
+          $b64 += Get-Content desktop/v102_parts/part_14b -Raw -Encoding UTF8
+          foreach ($i in 15..16) { $b64 += Get-Content ("desktop/v102_parts/part_{0:D2}" -f $i) -Raw -Encoding UTF8 }
+          $b64 = $b64 -replace '\s',''
+          if ($b64.Length -ne 150648) { throw "Unexpected source base64 length: $($b64.Length)" }
+          $bytes = [Convert]::FromBase64String($b64)
+          [IO.File]::WriteAllBytes((Join-Path $PWD 'desktop/source.zip'), $bytes)
+          Expand-Archive -Path desktop/source.zip -DestinationPath desktop/build -Force
+          if (!(Test-Path desktop/build/package.json)) { throw 'package.json missing after extraction' }
+
+      - name: Apply v1.0.5 login design with restored icons
+        shell: pwsh
+        run: |
+          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+
+          # Keep the verified VELTRO application icon/logo used by v1.0.5.
+          $logoB64 = (Get-Content (Join-Path $PWD 'desktop/branding/veltro_logo.b64') -Raw -Encoding UTF8) -replace '\s',''
+          [IO.File]::WriteAllBytes((Join-Path $PWD 'desktop/build/assets/veltro_logo.png'), [Convert]::FromBase64String($logoB64))
+
+          # Reuse the exact v1.0.5 login markup/CSS already approved, then change only the two field icons.
+          $baseWorkflow = Get-Content '.github/workflows/build-veltro-hts.yml' -Raw -Encoding UTF8
+          $htmlMatch = [regex]::Match($baseWorkflow, '(?s)\$loginHtml\s*=.*?FromBase64String\(''([^'']+)''\)')
+          $cssMatch  = [regex]::Match($baseWorkflow, '(?s)\$css\s*=.*?FromBase64String\(''([^'']+)''\)')
+          if (-not $htmlMatch.Success) { throw 'Could not extract v1.0.5 login HTML' }
+          if (-not $cssMatch.Success) { throw 'Could not extract v1.0.5 login CSS' }
+
+          $loginHtml = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($htmlMatch.Groups[1].Value))
+          $css = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($cssMatch.Groups[1].Value))
+
+          $loginHtml = $loginHtml.Replace('<span class="field-icon user-icon"></span>', '<span class="field-icon user-icon">👤</span>')
+          $loginHtml = $loginHtml.Replace('<span class="field-icon lock-icon"></span>', '<span class="field-icon lock-icon">🔒</span>')
+          $loginHtml = $loginHtml.Replace('v 1.0.5','v 1.0.6')
+
+          # Prevent the v1.0.5 CSS pseudo-icons from covering the restored emoji icons.
+          $css += @'
+
+/* v1.0.6 - restore original login field icons only */
+.veltro-ref-card .user-icon::before,
+.veltro-ref-card .user-icon::after,
+.veltro-ref-card .lock-icon::before,
+.veltro-ref-card .lock-icon::after {
+  content: none !important;
+  display: none !important;
+}
+.veltro-ref-card .field-icon {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 30px !important;
+  min-width: 30px !important;
+  height: 30px !important;
+  font-family: "Segoe UI Emoji", "Segoe UI Symbol", sans-serif !important;
+  font-size: 21px !important;
+  line-height: 1 !important;
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+.veltro-ref-card .user-icon { color: #ffffff !important; }
+.veltro-ref-card .lock-icon { color: #ffc400 !important; }
+'@
+
+          $index = '<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>VELTRO HTS</title><link rel="stylesheet" href="styles.css"></head><body><div id="app"></div><script src="renderer.js"></script></body></html>'
+          [IO.File]::WriteAllText((Join-Path $PWD 'desktop/build/src/index.html'), $index, $utf8NoBom)
+
+          $rendererPath = Join-Path $PWD 'desktop/build/src/renderer.js'
+          $renderer = Get-Content $rendererPath -Raw -Encoding UTF8
+          $renderer = $renderer -replace "(?m)^\s*'6EU26':.*\r?\n", ''
+          $renderer = $renderer -replace "(?m)^\s*'6BU26':.*\r?\n", ''
+          $renderer = $renderer.Replace("'6BU26':{region:'US',code:'6B'}, '6EU26':{region:'US',code:'6E'}, '6JU26':{region:'US',code:'6J'}, HSIQ26:{region:'HK',code:'HSI'}", "'6JU26':{region:'US',code:'6J'}, HSIQ26:{region:'HK',code:'HSI'}")
+          $renderer = $renderer.Replace('cash: 30000000','cash: 0')
+          $renderer = $renderer.Replace('v 1.0.0','v 1.0.6').Replace('v 1.0.1','v 1.0.6').Replace('v 1.0.2','v 1.0.6').Replace('v 1.0.3','v 1.0.6').Replace('v 1.0.4','v 1.0.6').Replace('v 1.0.5','v 1.0.6')
+          $pattern = '(?s)<div class="login-art veltro-login-art">.*?<div class="login-error" id="loginError"></div>\s*</div>\s*</div>'
+          $renderer2 = [regex]::Replace($renderer,$pattern,[System.Text.RegularExpressions.MatchEvaluator]{param($m) $loginHtml},1)
+          if ($renderer2 -eq $renderer) { throw 'Login markup replacement failed' }
+          [IO.File]::WriteAllText($rendererPath,$renderer2,$utf8NoBom)
+
+          $stylesPath = Join-Path $PWD 'desktop/build/src/styles.css'
+          $styles = Get-Content $stylesPath -Raw -Encoding UTF8
+          [IO.File]::WriteAllText($stylesPath, ($styles + "`r`n" + $css), $utf8NoBom)
+
+          $mainPath = Join-Path $PWD 'desktop/build/src/main.js'
+          $main = Get-Content $mainPath -Raw -Encoding UTF8
+          $main = $main.Replace('cash: 30000000','cash: 0')
+          [IO.File]::WriteAllText($mainPath, $main, $utf8NoBom)
+
+          $pkgPath = Join-Path $PWD 'desktop/build/package.json'
+          $pkg = Get-Content $pkgPath -Raw -Encoding UTF8 | ConvertFrom-Json
+          $pkg.version = '1.0.6'
+          $pkg.scripts | Add-Member -NotePropertyName 'release:win' -NotePropertyValue 'electron-builder --win nsis --publish never' -Force
+          if (-not $pkg.dependencies) { $pkg | Add-Member -NotePropertyName dependencies -NotePropertyValue ([pscustomobject]@{}) }
+          $pkg.dependencies | Add-Member -NotePropertyName 'electron-updater' -NotePropertyValue '^6.6.2' -Force
+          $pkg.build.files = @('src/**/*','assets/**/*','package.json')
+          $pkg.build.win.icon = 'assets/veltro_logo.png'
+          $pkg.build.nsis.artifactName = 'VELTRO_HTS_Setup.${ext}'
+          [IO.File]::WriteAllText($pkgPath, ($pkg | ConvertTo-Json -Depth 20), $utf8NoBom)
+
+      - name: Install dependencies
+        working-directory: desktop/build
+        run: npm install --no-audit --no-fund
+
+      - name: Validate sources
+        working-directory: desktop/build
+        shell: pwsh
+        run: |
+          node --check src/main.js
+          node --check src/preload.js
+          node --check src/renderer.js
+          $renderer = Get-Content src/renderer.js -Raw -Encoding UTF8
+          if (-not $renderer.Contains('👤')) { throw 'User icon not found in packaged renderer' }
+          if (-not $renderer.Contains('🔒')) { throw 'Lock icon not found in packaged renderer' }
+          if (!(Test-Path src/index.html)) { throw 'src/index.html missing' }
+          if (!(Test-Path assets/veltro_logo.png)) { throw 'VELTRO logo missing' }
+
+      - name: Build NSIS installer
+        working-directory: desktop/build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: npm run release:win
+
+      - name: Read version
+        id: version
+        shell: pwsh
+        run: |
+          $v = node -p "require('./desktop/build/package.json').version"
+          "version=$v" >> $env:GITHUB_OUTPUT
+          "tag=v$v" >> $env:GITHUB_OUTPUT
+
+      - name: Replace release if rebuilding same version
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release delete "$TAG" --cleanup-tag --yes
+          fi
+
+      - name: Publish installer release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          gh release create "$TAG" \
+            desktop/build/dist/VELTRO_HTS_Setup.exe \
+            desktop/build/dist/VELTRO_HTS_Setup.exe.blockmap \
+            desktop/build/dist/latest.yml \
+            --target main \
+            --latest \
+            --title "VELTRO HTS v$VERSION" \
+            --notes "Login input icon fix only: restored person icon for ID and lock icon for password. Existing HTS functions, data and v1.0.5 login design preserved."
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VELTRO-HTS-Setup-${{ steps.version.outputs.version }}
+          path: |
+            desktop/build/dist/VELTRO_HTS_Setup.exe
+            desktop/build/dist/VELTRO_HTS_Setup.exe.blockmap
+            desktop/build/dist/latest.yml
