@@ -4,52 +4,60 @@ root = pathlib.Path.cwd()
 build = root / 'desktop' / 'build'
 renderer_path = build / 'src' / 'renderer.js'
 styles_path = build / 'src' / 'styles.css'
+main_path = build / 'src' / 'main.js'
+preload_path = build / 'src' / 'preload.js'
 pkg_path = build / 'package.json'
 asset_path = build / 'assets' / 'login_left_current.jpg'
+resource_path = build / 'resources' / 'login-left.jpg'
 version = os.environ.get('VELTRO_VERSION', '').strip()
 if not re.fullmatch(r'\d+\.\d+\.\d+', version):
     raise RuntimeError(f'Invalid VELTRO_VERSION: {version!r}')
 
-# Use the approved VELTRO poster asset already stored in the repository.
-poster_b64 = ''
-poster_b64 += (root / 'desktop' / 'branding' / 'login_left_v107_part0.b64').read_text(encoding='utf-8')
-poster_b64 += (root / 'desktop' / 'branding' / 'login_left_v107_part1.b64').read_text(encoding='utf-8')
-poster_b64 = re.sub(r'\s+', '', poster_b64)
+poster_b64 = re.sub(r'\s+', '', (root / 'desktop' / 'patch' / 'login_left.b64').read_text(encoding='utf-8'))
 poster = base64.b64decode(poster_b64)
-if len(poster) < 15000:
-    raise RuntimeError('login poster asset is unexpectedly small')
+if len(poster) < 20000 or not poster.startswith(b'\xff\xd8\xff'):
+    raise RuntimeError('login poster asset is missing or invalid JPEG')
 asset_path.parent.mkdir(parents=True, exist_ok=True)
+resource_path.parent.mkdir(parents=True, exist_ok=True)
 asset_path.write_bytes(poster)
+resource_path.write_bytes(poster)
 
 renderer = renderer_path.read_text(encoding='utf-8')
-# Remove the broken asynchronous runtime poster loader. The poster is now a normal packaged asset.
 renderer = re.sub(r"(?m)^\s*window\.desktop\?\.assetUrl\?\.\('login_left_v\d+\.jpg'\).*?\.catch\(\(\)=>\{\}\);\s*$", '', renderer)
+renderer = re.sub(r"(?m)^\s*window\.desktop\?\.loginPosterUrl\?\.\(\).*?\.catch\(\(\)=>\{\}\);\s*$", '', renderer)
 
 left_pattern = re.compile(
     r'<div class="login-art veltro-login-art exact-poster-art" id="loginPoster">\s*'
+    r'(?:<img[^>]+>\s*)?'
     r'<div class="version" id="version">v [^<]+</div>\s*</div>',
     re.S
 )
 left_html = f'''<div class="login-art veltro-login-art exact-poster-art" id="loginPoster">
-            <img class="veltro-login-poster-img" src="../assets/login_left_current.jpg" alt="VELTRO">
+            <img class="veltro-login-poster-img" id="loginPosterImage" src="../assets/login_left_current.jpg" alt="VELTRO">
             <div class="version" id="version">v {version}</div>
           </div>'''
 renderer2, n = left_pattern.subn(left_html, renderer, count=1)
 if n != 1:
-    raise RuntimeError('Could not replace the v1.0.12 login poster panel')
+    raise RuntimeError('Could not replace login poster panel')
 renderer = renderer2
 renderer = re.sub(r'v 1\.0\.\d+', f'v {version}', renderer)
+version_line = "window.desktop?.version().then(v => document.getElementById('version').textContent = `v ${v}`);"
+poster_line = "window.desktop?.loginPosterUrl?.().then(u => { const img=document.getElementById('loginPosterImage'); if(img&&u) img.src=u; }).catch(()=>{});"
+if version_line not in renderer:
+    raise RuntimeError('Could not find version binding')
+renderer = renderer.replace(version_line, version_line + '\n  ' + poster_line, 1)
 renderer_path.write_text(renderer, encoding='utf-8')
 
 styles = styles_path.read_text(encoding='utf-8')
 styles += r'''
 
-/* Stable packaged login poster */
+/* Stable packaged login poster v2 */
 .exact-poster-art{
   position:relative !important;
   overflow:hidden !important;
   padding:0 !important;
   background:#03101f !important;
+  display:block !important;
 }
 .exact-poster-art::before,.exact-poster-art::after{content:none !important;display:none !important}
 .veltro-login-poster-img{
@@ -61,8 +69,11 @@ styles += r'''
   object-fit:cover !important;
   object-position:center center !important;
   z-index:1 !important;
+  opacity:1 !important;
+  visibility:visible !important;
 }
 .exact-poster-art .version{
+  position:absolute !important;
   z-index:5 !important;
   left:14px !important;
   bottom:10px !important;
@@ -74,19 +85,54 @@ styles += r'''
 '''
 styles_path.write_text(styles, encoding='utf-8')
 
+main = main_path.read_text(encoding='utf-8')
+if "const { pathToFileURL } = require('url');" not in main:
+    anchor = "const path = require('path');"
+    if anchor not in main:
+        raise RuntimeError('path require anchor missing in main.js')
+    main = main.replace(anchor, anchor + "\nconst { pathToFileURL } = require('url');", 1)
+main = re.sub(r"(?m)^\s*ipcMain\.handle\('app:login-poster-url'.*?$", '', main)
+handler_anchor = "ipcMain.handle('app:quit',()=>app.quit());"
+if handler_anchor not in main:
+    raise RuntimeError('app:quit handler missing in main.js')
+poster_handler = "ipcMain.handle('app:login-poster-url',()=>pathToFileURL(path.join(process.resourcesPath,'login-left.jpg')).toString());"
+main = main.replace(handler_anchor, handler_anchor + '\n' + poster_handler, 1)
+main_path.write_text(main, encoding='utf-8')
+
+preload = preload_path.read_text(encoding='utf-8')
+preload = re.sub(r"(?m)^\s*loginPosterUrl:.*?$", '', preload)
+quit_anchor = "quit: () => ipcRenderer.invoke('app:quit'),"
+if quit_anchor not in preload:
+    raise RuntimeError('quit bridge missing in preload.js')
+preload = preload.replace(quit_anchor, quit_anchor + "\n  loginPosterUrl: () => ipcRenderer.invoke('app:login-poster-url'),", 1)
+preload_path.write_text(preload, encoding='utf-8')
+
 pkg = json.loads(pkg_path.read_text(encoding='utf-8-sig'))
 pkg['version'] = version
 pkg.setdefault('build', {})['files'] = ['src/**/*', 'assets/**/*', 'package.json']
+extra = pkg['build'].get('extraResources') or []
+extra = [x for x in extra if not (isinstance(x, dict) and x.get('to') == 'login-left.jpg')]
+extra.append({'from': 'resources/login-left.jpg', 'to': 'login-left.jpg'})
+pkg['build']['extraResources'] = extra
 pkg_path.write_text(json.dumps(pkg, ensure_ascii=False, indent=2), encoding='utf-8')
 
 final_renderer = renderer_path.read_text(encoding='utf-8')
+final_main = main_path.read_text(encoding='utf-8')
+final_preload = preload_path.read_text(encoding='utf-8')
 final_styles = styles_path.read_text(encoding='utf-8')
-if '../assets/login_left_current.jpg' not in final_renderer:
-    raise RuntimeError('static login poster image is missing')
-if "assetUrl?.('login_left_v" in final_renderer:
-    raise RuntimeError('old async login poster loader is still present')
+final_pkg = json.loads(pkg_path.read_text(encoding='utf-8'))
+if 'id="loginPosterImage"' not in final_renderer:
+    raise RuntimeError('loginPosterImage missing')
+if "loginPosterUrl?.()" not in final_renderer:
+    raise RuntimeError('loginPosterUrl renderer binding missing')
+if "app:login-poster-url" not in final_main or "process.resourcesPath" not in final_main:
+    raise RuntimeError('login poster main-process URL handler missing')
+if "loginPosterUrl:" not in final_preload:
+    raise RuntimeError('loginPosterUrl preload bridge missing')
 if 'object-fit:cover !important' not in final_styles:
-    raise RuntimeError('stable poster CSS is missing')
-if not asset_path.exists() or asset_path.stat().st_size != len(poster):
-    raise RuntimeError('packaged poster asset verification failed')
-print(f'VELTRO {version} stable login poster patch verified')
+    raise RuntimeError('stable poster CSS missing')
+if {'from': 'resources/login-left.jpg', 'to': 'login-left.jpg'} not in final_pkg['build']['extraResources']:
+    raise RuntimeError('extraResources poster packaging missing')
+if asset_path.read_bytes() != poster or resource_path.read_bytes() != poster:
+    raise RuntimeError('poster asset verification failed')
+print(f'VELTRO {version} exact poster extraResources patch verified')
