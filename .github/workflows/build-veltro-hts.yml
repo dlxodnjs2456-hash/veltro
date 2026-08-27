@@ -109,6 +109,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: npm run release:win
 
+      - name: Verify packaged login poster
+        shell: pwsh
+        run: |
+          $poster = Join-Path $PWD 'desktop/build/dist/win-unpacked/resources/login-left.jpg'
+          if (!(Test-Path $poster)) { throw "Packaged login poster missing: $poster" }
+          $hash = (Get-FileHash $poster -Algorithm SHA256).Hash.ToLower()
+          $expected = '22f0623159bb5f08b946044266b47f859919e7fc2352d389292b5f084ace4644'
+          if ($hash -ne $expected) { throw "Packaged login poster hash mismatch: $hash" }
+          $size = (Get-Item $poster).Length
+          if ($size -ne 11309) { throw "Packaged login poster size mismatch: $size" }
+          Write-Host "Packaged login poster verified: $hash ($size bytes)"
+
       - name: Publish auto-update release
         shell: bash
         env:
@@ -126,7 +138,7 @@ jobs:
             --target main \
             --latest \
             --title "VELTRO HTS v${VERSION}" \
-            --notes "VELTRO HTS automatic patch release. Built from the verified v1.0.12 base plus desktop/patch/current.py. Existing trading, market-data, account, DB, member, balance, order, position, deposit/withdrawal, notification, and updater behavior is preserved unless explicitly patched."
+            --notes "VELTRO HTS automatic patch release. Login poster is packaged as a verified Electron extraResource and loaded through the preload bridge with an in-app fallback. Existing trading, market-data, account, DB, member, balance, order, position, deposit/withdrawal, notification, and updater behavior is preserved unless explicitly patched."
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
