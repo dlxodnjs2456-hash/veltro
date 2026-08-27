@@ -1,0 +1,275 @@
+name: Build VELTRO HTS v1.0.7 login poster patch
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'desktop/branding/login_left_v107_part0.b64'
+      - 'desktop/branding/login_left_v107_part1.b64'
+      - '.github/workflows/build-veltro-hts-v107.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Rebuild source and apply v1.0.7 login poster patch
+        shell: pwsh
+        run: |
+          @'
+          import base64, json, pathlib, re, shutil, zipfile
+
+          root = pathlib.Path.cwd()
+          desktop = root / 'desktop'
+          build = desktop / 'build'
+          if build.exists():
+              shutil.rmtree(build)
+
+          # Reconstruct the existing HTS source exactly as previous stable builds do.
+          p0 = (desktop / 'v102_parts' / 'part_00').read_text(encoding='utf-8')
+          b64 = p0[:9000]
+          for i in range(1, 6):
+              b64 += (desktop / 'v102_parts' / f'part_{i:02d}').read_text(encoding='utf-8')
+          b64 += (desktop / 'v102_parts' / 'part_06').read_text(encoding='utf-8')
+          b64 += (desktop / 'v102_parts' / 'part_06b').read_text(encoding='utf-8')
+          for i in range(7, 14):
+              b64 += (desktop / 'v102_parts' / f'part_{i:02d}').read_text(encoding='utf-8')
+          b64 += (desktop / 'v102_parts' / 'part_14a').read_text(encoding='utf-8')
+          b64 += (desktop / 'v102_parts' / 'part_14b').read_text(encoding='utf-8')
+          for i in range(15, 17):
+              b64 += (desktop / 'v102_parts' / f'part_{i:02d}').read_text(encoding='utf-8')
+          b64 = re.sub(r'\s+', '', b64)
+          if len(b64) != 150648:
+              raise RuntimeError(f'Unexpected source base64 length: {len(b64)}')
+
+          source_zip = desktop / 'source-v107.zip'
+          source_zip.write_bytes(base64.b64decode(b64))
+          with zipfile.ZipFile(source_zip) as z:
+              for info in z.infolist():
+                  normalized = info.filename.replace('\\', '/').lower()
+                  if normalized == 'assets/veltro_logo.png':
+                      continue
+                  z.extract(info, build)
+
+          # Restore the verified app icon/logo used by the stable installer.
+          logo_b64 = re.sub(r'\s+', '', (desktop / 'branding' / 'veltro_logo.b64').read_text(encoding='utf-8'))
+          (build / 'assets').mkdir(parents=True, exist_ok=True)
+          (build / 'assets' / 'veltro_logo.png').write_bytes(base64.b64decode(logo_b64))
+
+          # Decode the approved single-piece left login poster asset.
+          poster_b64 = ''
+          poster_b64 += (desktop / 'branding' / 'login_left_v107_part0.b64').read_text(encoding='utf-8')
+          poster_b64 += (desktop / 'branding' / 'login_left_v107_part1.b64').read_text(encoding='utf-8')
+          poster_b64 = re.sub(r'\s+', '', poster_b64)
+          poster_bytes = base64.b64decode(poster_b64)
+          if len(poster_bytes) < 15000:
+              raise RuntimeError('login poster asset is unexpectedly small')
+          (build / 'assets' / 'login_left_v107.jpg').write_bytes(poster_bytes)
+
+          # Reuse the already-approved v1.0.5/v1.0.6 login layout for the right side.
+          base_workflow = (root / '.github' / 'workflows' / 'build-veltro-hts.yml').read_text(encoding='utf-8')
+          hm = re.search(r"\$loginHtml\s*=.*?FromBase64String\('([^']+)'\)", base_workflow, re.S)
+          cm = re.search(r"\$css\s*=.*?FromBase64String\('([^']+)'\)", base_workflow, re.S)
+          if not hm or not cm:
+              raise RuntimeError('Could not extract approved login layout')
+          login_html = base64.b64decode(hm.group(1)).decode('utf-8')
+          login_css = base64.b64decode(cm.group(1)).decode('utf-8')
+
+          # Keep the person/lock icons from v1.0.6.
+          login_html = login_html.replace(
+              '<span class="field-icon user-icon"></span>',
+              '<span class="field-icon user-icon">&#128100;</span>'
+          )
+          login_html = login_html.replace(
+              '<span class="field-icon lock-icon"></span>',
+              '<span class="field-icon lock-icon">&#128274;</span>'
+          )
+
+          # Requested v1.0.7 change only: left side is one poster image, not layered DOM graphics.
+          left_html = '''<div class="login-art veltro-login-art exact-poster-art">
+            <img src="../assets/login_left_v107.jpg" class="exact-poster-img" alt="VELTRO">
+            <div class="version" id="version">v 1.0.7</div>
+          </div>
+          '''
+          login_html2, left_count = re.subn(
+              r'<div class="login-art veltro-login-art">.*?(?=<div class="login-side">)',
+              left_html,
+              login_html,
+              count=1,
+              flags=re.S
+          )
+          if left_count != 1:
+              raise RuntimeError('Left login panel replacement failed')
+          login_html = login_html2.replace('v 1.0.5', 'v 1.0.7')
+
+          icon_css = r'''
+          /* v1.0.7: preserve v1.0.6 login person/lock icons */
+          .veltro-ref-card .user-icon::before,
+          .veltro-ref-card .user-icon::after,
+          .veltro-ref-card .lock-icon::before,
+          .veltro-ref-card .lock-icon::after {
+            content: none !important;
+            display: none !important;
+          }
+          .veltro-ref-card .field-icon {
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            width: 30px !important;
+            min-width: 30px !important;
+            height: 30px !important;
+            padding: 0 !important;
+            margin: 0 12px 0 0 !important;
+            font-family: "Segoe UI Emoji", "Segoe UI Symbol", sans-serif !important;
+            font-size: 21px !important;
+            line-height: 1 !important;
+            background: transparent !important;
+            border: 0 !important;
+            box-shadow: none !important;
+          }
+          .veltro-ref-card .user-icon { color: #ffffff !important; }
+          .veltro-ref-card .lock-icon { color: #ffc400 !important; }
+          '''
+
+          poster_css = r'''
+          /* v1.0.7: render the approved left visual as one undistorted image */
+          .exact-poster-art {
+            position: relative !important;
+            overflow: hidden !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            padding: 0 !important;
+            background: #03101f !important;
+          }
+          .exact-poster-art::before,
+          .exact-poster-art::after {
+            content: none !important;
+            display: none !important;
+          }
+          .exact-poster-img {
+            display: block !important;
+            width: 100% !important;
+            height: 100% !important;
+            object-fit: contain !important;
+            object-position: center center !important;
+            filter: none !important;
+            mix-blend-mode: normal !important;
+            transform: none !important;
+          }
+          .exact-poster-art .version {
+            z-index: 10 !important;
+            left: 14px !important;
+            bottom: 10px !important;
+            color: #ffffff !important;
+            background: #03101f !important;
+            padding: 3px 7px !important;
+            border-radius: 2px !important;
+          }
+          '''
+
+          index = '<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>VELTRO HTS</title><link rel="stylesheet" href="styles.css"></head><body><div id="app"></div><script src="renderer.js"></script></body></html>'
+          (build / 'src' / 'index.html').write_text(index, encoding='utf-8')
+
+          renderer_path = build / 'src' / 'renderer.js'
+          renderer = renderer_path.read_text(encoding='utf-8')
+          renderer = re.sub(r"(?m)^\s*'6EU26':.*\r?\n", '', renderer)
+          renderer = re.sub(r"(?m)^\s*'6BU26':.*\r?\n", '', renderer)
+          renderer = renderer.replace("'6BU26':{region:'US',code:'6B'}, '6EU26':{region:'US',code:'6E'}, '6JU26':{region:'US',code:'6J'}, HSIQ26:{region:'HK',code:'HSI'}", "'6JU26':{region:'US',code:'6J'}, HSIQ26:{region:'HK',code:'HSI'}")
+          renderer = renderer.replace('cash: 30000000', 'cash: 0')
+          for v in ['1.0.0','1.0.1','1.0.2','1.0.3','1.0.4','1.0.5','1.0.6']:
+              renderer = renderer.replace(f'v {v}', 'v 1.0.7')
+
+          pattern = re.compile(r'<div class="login-art veltro-login-art">.*?<div class="login-error" id="loginError"></div>\s*</div>\s*</div>', re.S)
+          renderer2, n = pattern.subn(login_html, renderer, count=1)
+          if n != 1:
+              raise RuntimeError('Login markup replacement failed')
+          renderer_path.write_text(renderer2, encoding='utf-8')
+
+          styles_path = build / 'src' / 'styles.css'
+          styles = styles_path.read_text(encoding='utf-8')
+          styles_path.write_text(styles + '\n' + login_css + '\n' + icon_css + '\n' + poster_css, encoding='utf-8')
+
+          main_path = build / 'src' / 'main.js'
+          main = main_path.read_text(encoding='utf-8').replace('cash: 30000000', 'cash: 0')
+          main_path.write_text(main, encoding='utf-8')
+
+          pkg_path = build / 'package.json'
+          pkg = json.loads(pkg_path.read_text(encoding='utf-8-sig'))
+          pkg['version'] = '1.0.7'
+          pkg.setdefault('scripts', {})['release:win'] = 'electron-builder --win nsis --publish never'
+          pkg.setdefault('dependencies', {})['electron-updater'] = '^6.6.2'
+          pkg['build']['files'] = ['src/**/*', 'assets/**/*', 'package.json']
+          pkg['build']['win']['icon'] = 'assets/veltro_logo.png'
+          pkg['build']['nsis']['artifactName'] = 'VELTRO_HTS_Setup.${ext}'
+          pkg_path.write_text(json.dumps(pkg, ensure_ascii=False, indent=2), encoding='utf-8')
+
+          # Fail the build if the requested v1.0.7 visual/icon changes are absent.
+          final_renderer = renderer_path.read_text(encoding='utf-8')
+          final_styles = styles_path.read_text(encoding='utf-8')
+          if 'login_left_v107.jpg' not in final_renderer:
+              raise RuntimeError('v1.0.7 left poster is missing from login markup')
+          if '&#128100;' not in final_renderer or '&#128274;' not in final_renderer:
+              raise RuntimeError('Login icons are missing')
+          if 'object-fit: contain !important' not in final_styles:
+              raise RuntimeError('Undistorted poster CSS is missing')
+          print('v1.0.7 login poster patch verified')
+          '@ | Set-Content -Path patch_v107.py -Encoding UTF8
+          python patch_v107.py
+
+      - name: Install dependencies
+        working-directory: desktop/build
+        run: npm install --no-audit --no-fund
+
+      - name: Validate JavaScript
+        working-directory: desktop/build
+        run: |
+          node --check src/main.js
+          node --check src/preload.js
+          node --check src/renderer.js
+
+      - name: Build NSIS installer
+        working-directory: desktop/build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: npm run release:win
+
+      - name: Replace v1.0.7 release if necessary
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view v1.0.7 >/dev/null 2>&1; then
+            gh release delete v1.0.7 --cleanup-tag --yes
+          fi
+
+      - name: Publish v1.0.7 auto-update release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create v1.0.7 \
+            desktop/build/dist/VELTRO_HTS_Setup.exe \
+            desktop/build/dist/VELTRO_HTS_Setup.exe.blockmap \
+            desktop/build/dist/latest.yml \
+            --target main \
+            --latest \
+            --title "VELTRO HTS v1.0.7" \
+            --notes "Login-screen-only patch: the approved VELTRO left poster is now rendered as one undistorted image. The v1.0.6 person/lock login icons and all existing HTS functions/data integration are preserved."
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VELTRO-HTS-Setup-1.0.7
+          path: |
+            desktop/build/dist/VELTRO_HTS_Setup.exe
+            desktop/build/dist/VELTRO_HTS_Setup.exe.blockmap
+            desktop/build/dist/latest.yml
