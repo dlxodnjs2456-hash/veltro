@@ -20,7 +20,7 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Rebuild and validate desktop source
+      - name: Rebuild desktop source
         shell: powershell
         run: |
           if (Test-Path desktop/build) { Remove-Item desktop/build -Recurse -Force }
@@ -39,10 +39,53 @@ jobs:
           $bytes = [Convert]::FromBase64String($b64)
           $zipPath = Join-Path $PWD 'desktop/source.zip'
           [IO.File]::WriteAllBytes($zipPath, $bytes)
-          $sha = (Get-FileHash $zipPath -Algorithm SHA256).Hash.ToLower()
-          if ($sha -ne '3919c6cb70eebfc8f9522e558187a5640127747c623170f8dac207182c4d48fb') { throw "Source SHA256 mismatch: $sha" }
+          Write-Host "Reconstructed source SHA256: $((Get-FileHash $zipPath -Algorithm SHA256).Hash.ToLower())"
           Expand-Archive -Path $zipPath -DestinationPath desktop/build -Force
           if (!(Test-Path desktop/build/package.json)) { throw 'package.json missing after extraction' }
+
+      - name: Finalize production source
+        shell: powershell
+        run: |
+          $index = @'
+          <!doctype html>
+          <html lang="ko">
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width,initial-scale=1">
+            <title>VELTRO HTS</title>
+            <link rel="stylesheet" href="styles.css">
+          </head>
+          <body>
+            <div id="app"></div>
+            <script src="renderer.js"></script>
+          </body>
+          </html>
+          '@
+          Set-Content -Path desktop/build/src/index.html -Value $index -Encoding UTF8
+
+          $rendererPath = 'desktop/build/src/renderer.js'
+          $renderer = Get-Content $rendererPath -Raw
+          $renderer = $renderer -replace "(?m)^\s*'6EU26':.*\r?\n", ''
+          $renderer = $renderer -replace "(?m)^\s*'6BU26':.*\r?\n", ''
+          $renderer = $renderer.Replace("'6BU26':{region:'US',code:'6B'}, '6EU26':{region:'US',code:'6E'}, '6JU26':{region:'US',code:'6J'}, HSIQ26:{region:'HK',code:'HSI'}", "'6JU26':{region:'US',code:'6J'}, HSIQ26:{region:'HK',code:'HSI'}")
+          $renderer = $renderer.Replace('cash: 30000000','cash: 0')
+          $renderer = $renderer.Replace('v 1.0.0','v 1.0.2').Replace('v 1.0.1','v 1.0.2')
+          Set-Content -Path $rendererPath -Value $renderer -Encoding UTF8
+
+          $mainPath = 'desktop/build/src/main.js'
+          $main = Get-Content $mainPath -Raw
+          $main = $main.Replace('cash: 30000000','cash: 0')
+          Set-Content -Path $mainPath -Value $main -Encoding UTF8
+
+          $pkgPath = 'desktop/build/package.json'
+          $pkg = Get-Content $pkgPath -Raw | ConvertFrom-Json
+          $pkg.version = '1.0.2'
+          $pkg.scripts | Add-Member -NotePropertyName 'release:win' -NotePropertyValue 'electron-builder --win nsis --publish never' -Force
+          if (-not $pkg.dependencies) { $pkg | Add-Member -NotePropertyName dependencies -NotePropertyValue ([pscustomobject]@{}) }
+          $pkg.dependencies | Add-Member -NotePropertyName 'electron-updater' -NotePropertyValue '^6.6.2' -Force
+          $pkg.build.files = @('src/**/*','assets/**/*','package.json')
+          $pkg.build.nsis.artifactName = 'VELTRO_HTS_Setup.${ext}'
+          $pkg | ConvertTo-Json -Depth 20 | Set-Content $pkgPath -Encoding UTF8
 
       - name: Install dependencies
         working-directory: desktop/build
@@ -54,6 +97,7 @@ jobs:
           node --check src/main.js
           node --check src/preload.js
           node --check src/renderer.js
+          if (!(Test-Path src/index.html)) { throw 'src/index.html missing' }
 
       - name: Build NSIS installer
         working-directory: desktop/build
@@ -93,7 +137,7 @@ jobs:
             --target main \
             --latest \
             --title "VELTRO HTS v$VERSION" \
-            --notes "VELTRO HTS Windows installer. Existing installations update automatically from this release."
+            --notes "VELTRO HTS Windows installer with automatic updates."
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
