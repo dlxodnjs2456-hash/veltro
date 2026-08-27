@@ -46,6 +46,7 @@ jobs:
       - name: Finalize production source
         shell: powershell
         run: |
+          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
           $index = @'
           <!doctype html>
           <html lang="ko">
@@ -61,23 +62,23 @@ jobs:
           </body>
           </html>
           '@
-          Set-Content -Path desktop/build/src/index.html -Value $index -Encoding UTF8
+          [IO.File]::WriteAllText((Join-Path $PWD 'desktop/build/src/index.html'), $index, $utf8NoBom)
 
-          $rendererPath = 'desktop/build/src/renderer.js'
+          $rendererPath = Join-Path $PWD 'desktop/build/src/renderer.js'
           $renderer = Get-Content $rendererPath -Raw
           $renderer = $renderer -replace "(?m)^\s*'6EU26':.*\r?\n", ''
           $renderer = $renderer -replace "(?m)^\s*'6BU26':.*\r?\n", ''
           $renderer = $renderer.Replace("'6BU26':{region:'US',code:'6B'}, '6EU26':{region:'US',code:'6E'}, '6JU26':{region:'US',code:'6J'}, HSIQ26:{region:'HK',code:'HSI'}", "'6JU26':{region:'US',code:'6J'}, HSIQ26:{region:'HK',code:'HSI'}")
           $renderer = $renderer.Replace('cash: 30000000','cash: 0')
           $renderer = $renderer.Replace('v 1.0.0','v 1.0.2').Replace('v 1.0.1','v 1.0.2')
-          Set-Content -Path $rendererPath -Value $renderer -Encoding UTF8
+          [IO.File]::WriteAllText($rendererPath, $renderer, $utf8NoBom)
 
-          $mainPath = 'desktop/build/src/main.js'
+          $mainPath = Join-Path $PWD 'desktop/build/src/main.js'
           $main = Get-Content $mainPath -Raw
           $main = $main.Replace('cash: 30000000','cash: 0')
-          Set-Content -Path $mainPath -Value $main -Encoding UTF8
+          [IO.File]::WriteAllText($mainPath, $main, $utf8NoBom)
 
-          $pkgPath = 'desktop/build/package.json'
+          $pkgPath = Join-Path $PWD 'desktop/build/package.json'
           $pkg = Get-Content $pkgPath -Raw | ConvertFrom-Json
           $pkg.version = '1.0.2'
           $pkg.scripts | Add-Member -NotePropertyName 'release:win' -NotePropertyValue 'electron-builder --win nsis --publish never' -Force
@@ -85,7 +86,8 @@ jobs:
           $pkg.dependencies | Add-Member -NotePropertyName 'electron-updater' -NotePropertyValue '^6.6.2' -Force
           $pkg.build.files = @('src/**/*','assets/**/*','package.json')
           $pkg.build.nsis.artifactName = 'VELTRO_HTS_Setup.${ext}'
-          $pkg | ConvertTo-Json -Depth 20 | Set-Content $pkgPath -Encoding UTF8
+          $pkgJson = $pkg | ConvertTo-Json -Depth 20
+          [IO.File]::WriteAllText($pkgPath, $pkgJson, $utf8NoBom)
 
       - name: Install dependencies
         working-directory: desktop/build
