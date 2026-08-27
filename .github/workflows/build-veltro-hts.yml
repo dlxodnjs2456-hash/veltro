@@ -16,66 +16,39 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
 
       - name: Rebuild desktop source
-        shell: powershell
+        shell: pwsh
         run: |
           if (Test-Path desktop/build) { Remove-Item desktop/build -Recurse -Force }
-          $p0 = Get-Content desktop/v102_parts/part_00 -Raw
+          $p0 = Get-Content desktop/v102_parts/part_00 -Raw -Encoding UTF8
           if ($p0.Length -lt 9000) { throw 'part_00 is too short' }
           $b64 = $p0.Substring(0,9000)
-          foreach ($i in 1..5) { $b64 += Get-Content ("desktop/v102_parts/part_{0:D2}" -f $i) -Raw }
-          $b64 += Get-Content desktop/v102_parts/part_06 -Raw
-          $b64 += Get-Content desktop/v102_parts/part_06b -Raw
-          foreach ($i in 7..13) { $b64 += Get-Content ("desktop/v102_parts/part_{0:D2}" -f $i) -Raw }
-          $b64 += Get-Content desktop/v102_parts/part_14a -Raw
-          $b64 += Get-Content desktop/v102_parts/part_14b -Raw
-          foreach ($i in 15..16) { $b64 += Get-Content ("desktop/v102_parts/part_{0:D2}" -f $i) -Raw }
+          foreach ($i in 1..5) { $b64 += Get-Content ("desktop/v102_parts/part_{0:D2}" -f $i) -Raw -Encoding UTF8 }
+          $b64 += Get-Content desktop/v102_parts/part_06 -Raw -Encoding UTF8
+          $b64 += Get-Content desktop/v102_parts/part_06b -Raw -Encoding UTF8
+          foreach ($i in 7..13) { $b64 += Get-Content ("desktop/v102_parts/part_{0:D2}" -f $i) -Raw -Encoding UTF8 }
+          $b64 += Get-Content desktop/v102_parts/part_14a -Raw -Encoding UTF8
+          $b64 += Get-Content desktop/v102_parts/part_14b -Raw -Encoding UTF8
+          foreach ($i in 15..16) { $b64 += Get-Content ("desktop/v102_parts/part_{0:D2}" -f $i) -Raw -Encoding UTF8 }
           $b64 = $b64 -replace '\s',''
           if ($b64.Length -ne 150648) { throw "Unexpected source base64 length: $($b64.Length)" }
           $bytes = [Convert]::FromBase64String($b64)
-          $zipPath = Join-Path $PWD 'desktop/source.zip'
-          [IO.File]::WriteAllBytes($zipPath, $bytes)
-          Write-Host "Reconstructed source SHA256: $((Get-FileHash $zipPath -Algorithm SHA256).Hash.ToLower())"
-          Expand-Archive -Path $zipPath -DestinationPath desktop/build -Force
+          [IO.File]::WriteAllBytes((Join-Path $PWD 'desktop/source.zip'), $bytes)
+          Expand-Archive -Path desktop/source.zip -DestinationPath desktop/build -Force
           if (!(Test-Path desktop/build/package.json)) { throw 'package.json missing after extraction' }
 
       - name: Finalize production source
         shell: pwsh
         run: |
           $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-
           $logoB64 = (Get-Content (Join-Path $PWD 'desktop/branding/veltro_logo.b64') -Raw -Encoding UTF8) -replace '\s',''
-          $logoBytes = [Convert]::FromBase64String($logoB64)
-          $logoPath = Join-Path $PWD 'desktop/build/assets/veltro_logo.png'
-          [IO.File]::WriteAllBytes($logoPath, $logoBytes)
-          if ((Get-Item $logoPath).Length -lt 5000) { throw 'VELTRO logo asset is unexpectedly small' }
-          Add-Type -AssemblyName System.Drawing
-          $img = [System.Drawing.Image]::FromFile($logoPath)
-          if ($img.Width -ne 256 -or $img.Height -ne 256) { $img.Dispose(); throw "Unexpected VELTRO logo dimensions: $($img.Width)x$($img.Height)" }
-          $img.Dispose()
-
-          $index = @'
-          <!doctype html>
-          <html lang="ko">
-          <head>
-            <meta charset="utf-8">
-            <meta name="viewport" content="width=device-width,initial-scale=1">
-            <title>VELTRO HTS</title>
-            <link rel="stylesheet" href="styles.css">
-          </head>
-          <body>
-            <div id="app"></div>
-            <script src="renderer.js"></script>
-          </body>
-          </html>
-          '@
+          [IO.File]::WriteAllBytes((Join-Path $PWD 'desktop/build/assets/veltro_logo.png'), [Convert]::FromBase64String($logoB64))
+          $index = '<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>VELTRO HTS</title><link rel="stylesheet" href="styles.css"></head><body><div id="app"></div><script src="renderer.js"></script></body></html>'
           [IO.File]::WriteAllText((Join-Path $PWD 'desktop/build/src/index.html'), $index, $utf8NoBom)
-
           $rendererPath = Join-Path $PWD 'desktop/build/src/renderer.js'
           $renderer = Get-Content $rendererPath -Raw -Encoding UTF8
           $renderer = $renderer -replace "(?m)^\s*'6EU26':.*\r?\n", ''
@@ -83,97 +56,16 @@ jobs:
           $renderer = $renderer.Replace("'6BU26':{region:'US',code:'6B'}, '6EU26':{region:'US',code:'6E'}, '6JU26':{region:'US',code:'6J'}, HSIQ26:{region:'HK',code:'HSI'}", "'6JU26':{region:'US',code:'6J'}, HSIQ26:{region:'HK',code:'HSI'}")
           $renderer = $renderer.Replace('cash: 30000000','cash: 0')
           $renderer = $renderer.Replace('v 1.0.0','v 1.0.5').Replace('v 1.0.1','v 1.0.5').Replace('v 1.0.2','v 1.0.5').Replace('v 1.0.3','v 1.0.5').Replace('v 1.0.4','v 1.0.5')
-
-          $oldLogin = @'
-      <div class="login-art veltro-login-art"><div class="veltro-logo-wrap"><img src="../assets/veltro_logo.png" class="veltro-logo-img" alt="VELTRO"></div><div class="version" id="version">v 1.0.5</div></div>
-      <div class="login-side">
-        <button class="close-btn" id="quit">×</button>
-        <div class="login-card">
-          <div class="brand veltro-brand"><div class="veltro-wordmark">VELTRO</div><div class="veltro-sub">FUTURES TRADING SYSTEM</div></div>
-          <div class="field"><span>♟</span><input id="userid" placeholder="아이디"></div>
-          <div class="field"><span>🔒</span><input id="password" type="password" placeholder="비밀번호"></div>
-          <label class="remember"><input type="checkbox" id="remember">아이디 저장</label>
-          <button class="login-primary" id="loginBtn">로그인</button>
-          <button class="login-secondary" id="joinBtn">회원가입하기</button>
-          <div class="login-error" id="loginError"></div>
-        </div>
-      </div>
-'@
-          $newLogin = @'
-      <div class="login-art veltro-login-art">
-        <div class="market-grid"></div>
-        <div class="market-map"></div>
-        <div class="market-chart"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
-        <div class="login-visual-copy">
-          <div class="visual-title">VELTRO</div>
-          <div class="visual-subtitle">ADVANCED FUTURES TRADING PLATFORM</div>
-          <div class="visual-tagline">Global Markets. Infinite Opportunities.</div>
-        </div>
-        <div class="hero-logo-box"><img src="../assets/veltro_logo.png" alt="VELTRO"></div>
-        <div class="feature-strip">
-          <div><b>◎</b><strong>GLOBAL ACCESS</strong><span>Trade global futures<br>markets 24/5</span></div>
-          <div><b>ϟ</b><strong>REAL-TIME DATA</strong><span>Ultra-fast market data<br>and execution</span></div>
-          <div><b>♢</b><strong>SECURE &amp; RELIABLE</strong><span>Enterprise-grade security<br>and stability</span></div>
-          <div><b>▥</b><strong>ADVANCED ANALYTICS</strong><span>Powerful tools for<br>smarter decisions</span></div>
-        </div>
-        <div class="version" id="version">v 1.0.5</div>
-      </div>
-      <div class="login-side">
-        <button class="close-btn" id="quit">×</button>
-        <div class="login-card veltro-ref-card">
-          <div class="brand veltro-brand"><div class="veltro-wordmark">VELTRO</div><div class="veltro-sub">FUTURES TRADING SYSTEM</div></div>
-          <div class="field veltro-field"><span class="field-icon user-icon"></span><input id="userid" placeholder="아이디"></div>
-          <div class="field veltro-field"><span class="field-icon lock-icon"></span><input id="password" type="password" placeholder="비밀번호"></div>
-          <label class="remember veltro-remember"><input type="checkbox" id="remember"><span>아이디 저장</span></label>
-          <button class="login-primary" id="loginBtn">로그인</button>
-          <button class="login-secondary" id="joinBtn">회원가입하기</button>
-          <div class="login-error" id="loginError"></div>
-        </div>
-      </div>
-'@
-          if (-not $renderer.Contains($oldLogin)) { throw 'Login markup anchor not found' }
-          $renderer = $renderer.Replace($oldLogin,$newLogin)
-          [IO.File]::WriteAllText($rendererPath, $renderer, $utf8NoBom)
-
-          $stylePath = Join-Path $PWD 'desktop/build/src/styles.css'
-          $loginCss = @'
-
-/* VELTRO login screen reference design - v1.0.5 */
-.login-shell{height:100vh;display:grid;grid-template-columns:53% 47%;background:#06111f;overflow:hidden;font-family:"Malgun Gothic","Segoe UI",Arial,sans-serif}
-.veltro-login-art{position:relative;display:block;overflow:hidden;background:radial-gradient(circle at 51% 57%,rgba(10,96,180,.55),transparent 31%),radial-gradient(circle at 12% 16%,rgba(6,73,137,.36),transparent 28%),linear-gradient(145deg,#04101d 0%,#06192d 48%,#071528 100%)}
-.veltro-login-art:before{display:block;content:"";position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(39,122,206,.055) 0 1px,transparent 1px 38px),repeating-linear-gradient(90deg,rgba(39,122,206,.045) 0 1px,transparent 1px 48px);opacity:.7}
-.veltro-login-art:after{content:"";position:absolute;left:-4%;right:-2%;bottom:12%;height:36%;border-radius:50%;border-top:2px solid rgba(45,151,255,.55);box-shadow:0 -8px 22px rgba(20,130,255,.14),0 -32px 60px rgba(15,80,150,.08);transform:skewY(-4deg)}
-.market-grid{position:absolute;inset:0;background:linear-gradient(110deg,transparent 0 35%,rgba(22,107,206,.08) 35% 36%,transparent 36% 100%),linear-gradient(18deg,transparent 0 60%,rgba(40,139,239,.08) 60% 61%,transparent 61%);opacity:.8}
-.market-map{position:absolute;left:-4%;top:6%;width:45%;height:36%;opacity:.28;background-image:radial-gradient(circle,#1e7dd3 1.6px,transparent 1.8px);background-size:8px 8px;clip-path:polygon(0 8%,10% 4%,20% 15%,29% 8%,43% 20%,53% 13%,67% 28%,77% 18%,92% 31%,84% 49%,72% 55%,66% 76%,48% 67%,37% 86%,22% 76%,11% 60%,0 54%)}
-.login-visual-copy{position:absolute;top:13%;left:0;right:0;text-align:center;z-index:3;color:white;text-shadow:0 2px 18px rgba(0,0,0,.38)}
-.visual-title{font-size:54px;line-height:1;font-weight:700;letter-spacing:11px;background:linear-gradient(#fff,#aab7c7 70%,#f7f8fa);-webkit-background-clip:text;background-clip:text;color:transparent}
-.visual-subtitle{margin-top:17px;font-size:15px;letter-spacing:1.3px;color:#70b9f2;font-weight:600}
-.visual-tagline{margin-top:17px;font-size:12px;color:#d8e2ee}
-.hero-logo-box{position:absolute;z-index:4;width:285px;height:285px;left:50%;top:49%;transform:translate(-50%,-50%);border-radius:55px;display:flex;align-items:center;justify-content:center;background:linear-gradient(145deg,#193e74,#07162a 72%);border:2px solid #3078c4;box-shadow:0 0 0 6px rgba(9,35,64,.65),0 0 22px #2f94ff,0 28px 65px rgba(0,0,0,.48),inset 0 2px 18px rgba(87,168,255,.3)}
-.hero-logo-box img{width:86%;height:86%;object-fit:contain;display:block;filter:drop-shadow(0 5px 10px rgba(0,0,0,.35))}
-.market-chart{position:absolute;z-index:2;right:-2%;top:22%;width:43%;height:40%;display:flex;align-items:flex-end;gap:10px;transform:skewY(-7deg);opacity:.88}
-.market-chart:after{content:"";position:absolute;left:-10%;right:0;bottom:17%;height:2px;background:linear-gradient(90deg,transparent,#30a4ff 20%,#8ed0ff 60%,transparent);box-shadow:0 0 8px #36a7ff;transform:rotate(-18deg)}
-.market-chart i{display:block;width:11px;background:linear-gradient(#91d3ff,#1c69bd);border:1px solid rgba(130,208,255,.55);box-shadow:0 0 8px rgba(64,157,255,.34)}
-.market-chart i:nth-child(1){height:16%}.market-chart i:nth-child(2){height:25%}.market-chart i:nth-child(3){height:31%}.market-chart i:nth-child(4){height:38%}.market-chart i:nth-child(5){height:47%}.market-chart i:nth-child(6){height:58%}.market-chart i:nth-child(7){height:67%}.market-chart i:nth-child(8){height:76%}.market-chart i:nth-child(9){height:89%}.market-chart i:nth-child(10){height:98%}
-.feature-strip{position:absolute;z-index:5;left:6%;right:6%;bottom:7%;height:118px;display:grid;grid-template-columns:repeat(4,1fr);color:#9db7d3}
-.feature-strip>div{display:flex;flex-direction:column;align-items:center;text-align:center;justify-content:flex-start;border-right:1px solid rgba(91,143,196,.25);padding:0 10px}
-.feature-strip>div:last-child{border-right:0}.feature-strip b{font-size:31px;line-height:32px;color:#58aef3;font-weight:400;margin-bottom:8px}.feature-strip strong{font-size:10px;color:#60b0f0;letter-spacing:.2px;margin-bottom:7px}.feature-strip span{font-size:9px;line-height:1.55;color:#9aaec2}
-.veltro-login-art .version{left:18px;bottom:17px;color:#f3f5f8;font-size:11px;z-index:8}
-.login-side{position:relative;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at 52% 28%,rgba(15,49,80,.26),transparent 35%),linear-gradient(155deg,#071a2d 0%,#06111f 58%,#06101d 100%);color:#fff;border-left:1px solid rgba(90,145,197,.13)}
-.close-btn{position:absolute;right:24px;top:12px;border:0;background:transparent;color:#f1f3f6;font-size:38px;font-weight:200;cursor:pointer;line-height:1;z-index:5}
-.veltro-ref-card{width:470px;max-width:78%;transform:translateY(-2%)}
-.veltro-brand{margin-bottom:63px;align-items:center}.veltro-wordmark{font-size:37px;letter-spacing:9px;font-weight:600;color:#f4f5f6;text-shadow:0 1px 8px rgba(255,255,255,.08)}.veltro-sub{font-size:10px;letter-spacing:4px;color:#7f93a9;margin-top:15px}
-.veltro-field{height:64px;display:flex;align-items:center;gap:15px;border-bottom:1px solid rgba(220,230,240,.72);padding:0 4px;margin:0}.veltro-field+ .veltro-field{margin-top:16px}.veltro-field input{font-family:"Malgun Gothic","Segoe UI",sans-serif;color:#f3f5f7;font-size:16px}.veltro-field input::placeholder{color:#778596;opacity:1}.field-icon{width:20px;height:20px;display:inline-block;position:relative;opacity:.95;flex:0 0 20px}.user-icon:before{content:"";position:absolute;width:7px;height:7px;border:2px solid #f1f3f5;border-radius:50%;left:5px;top:0}.user-icon:after{content:"";position:absolute;width:13px;height:7px;border:2px solid #f1f3f5;border-top:0;border-radius:0 0 8px 8px;left:2px;bottom:1px}.lock-icon:before{content:"";position:absolute;width:14px;height:12px;border:2px solid #f2bc32;border-radius:2px;left:2px;bottom:0}.lock-icon:after{content:"";position:absolute;width:8px;height:8px;border:2px solid #f2bc32;border-bottom:0;border-radius:8px 8px 0 0;left:5px;top:0}
-.veltro-remember{display:flex;align-items:center;gap:7px;margin:26px 0 38px;color:#d9dfe5;font-size:14px}.veltro-remember input{width:16px;height:16px;margin:0;accent-color:#2a6ca9}
-.login-primary,.login-secondary{width:100%;height:60px;border-radius:32px;font-size:17px;font-weight:700;cursor:pointer;transition:.15s}.login-primary{border:1px solid #2b64a3;color:#fff;background:linear-gradient(90deg,#245a93 0%,#2265a4 58%,#23558d 100%);box-shadow:inset 0 1px 0 rgba(255,255,255,.08)}.login-primary:hover{filter:brightness(1.07)}.login-secondary{border:1px solid #3f7eb7;color:#a9c9e8;background:rgba(4,15,28,.22);margin-top:18px}.login-secondary:hover{background:rgba(31,83,130,.14)}.login-error{height:24px;color:#ff8794;font-size:13px;margin-top:10px;text-align:center}
-'@
-          Add-Content -Path $stylePath -Value $loginCss -Encoding UTF8
-
+          $loginHtml = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('PGRpdiBjbGFzcz0ibG9naW4tYXJ0IHZlbHRyby1sb2dpbi1hcnQiPgogIDxkaXYgY2xhc3M9Im1hcmtldC1ncmlkIj48L2Rpdj48ZGl2IGNsYXNzPSJtYXJrZXQtbWFwIj48L2Rpdj4KICA8ZGl2IGNsYXNzPSJtYXJrZXQtY2hhcnQiPjxpPjwvaT48aT48L2k+PGk+PC9pPjxpPjwvaT48aT48L2k+PGk+PC9pPjxpPjwvaT48aT48L2k+PGk+PC9pPjxpPjwvaT48L2Rpdj4KICA8ZGl2IGNsYXNzPSJsb2dpbi12aXN1YWwtY29weSI+PGRpdiBjbGFzcz0idmlzdWFsLXRpdGxlIj5WRUxUUk88L2Rpdj48ZGl2IGNsYXNzPSJ2aXN1YWwtc3VidGl0bGUiPkFEVkFOQ0VEIEZVVFVSRVMgVFJBRElORyBQTEFURk9STTwvZGl2PjxkaXYgY2xhc3M9InZpc3VhbC10YWdsaW5lIj5HbG9iYWwgTWFya2V0cy4gSW5maW5pdGUgT3Bwb3J0dW5pdGllcy48L2Rpdj48L2Rpdj4KICA8ZGl2IGNsYXNzPSJoZXJvLWxvZ28tYm94Ij48aW1nIHNyYz0iLi4vYXNzZXRzL3ZlbHRyb19sb2dvLnBuZyIgYWx0PSJWRUxUUk8iPjwvZGl2PgogIDxkaXYgY2xhc3M9ImZlYXR1cmUtc3RyaXAiPjxkaXY+PGI+4peOPC9iPjxzdHJvbmc+R0xPQkFMIEFDQ0VTUzwvc3Ryb25nPjxzcGFuPlRyYWRlIGdsb2JhbCBmdXR1cmVzPGJyPm1hcmtldHMgMjQvNTwvc3Bhbj48L2Rpdj48ZGl2PjxiPs+fPC9iPjxzdHJvbmc+UkVBTC1USU1FIERBVEE8L3N0cm9uZz48c3Bhbj5VbHRyYS1mYXN0IG1hcmtldCBkYXRhPGJyPmFuZCBleGVjdXRpb248L3NwYW4+PC9kaXY+PGRpdj48Yj7imaI8L2I+PHN0cm9uZz5TRUNVUkUgJmFtcDsgUkVMSUFCTEU8L3N0cm9uZz48c3Bhbj5FbnRlcnByaXNlLWdyYWRlIHNlY3VyaXR5PGJyPmFuZCBzdGFiaWxpdHk8L3NwYW4+PC9kaXY+PGRpdj48Yj7ilqU8L2I+PHN0cm9uZz5BRFZBTkNFRCBBTkFMWVRJQ1M8L3N0cm9uZz48c3Bhbj5Qb3dlcmZ1bCB0b29scyBmb3I8YnI+c21hcnRlciBkZWNpc2lvbnM8L3NwYW4+PC9kaXY+PC9kaXY+CiAgPGRpdiBjbGFzcz0idmVyc2lvbiIgaWQ9InZlcnNpb24iPnYgMS4wLjU8L2Rpdj4KPC9kaXY+CjxkaXYgY2xhc3M9ImxvZ2luLXNpZGUiPgogIDxidXR0b24gY2xhc3M9ImNsb3NlLWJ0biIgaWQ9InF1aXQiPsOXPC9idXR0b24+CiAgPGRpdiBjbGFzcz0ibG9naW4tY2FyZCB2ZWx0cm8tcmVmLWNhcmQiPgogICAgPGRpdiBjbGFzcz0iYnJhbmQgdmVsdHJvLWJyYW5kIj48ZGl2IGNsYXNzPSJ2ZWx0cm8td29yZG1hcmsiPlZFTFRSTzwvZGl2PjxkaXYgY2xhc3M9InZlbHRyby1zdWIiPkZVVFVSRVMgVFJBRElORyBTWVNURU08L2Rpdj48L2Rpdj4KICAgIDxkaXYgY2xhc3M9ImZpZWxkIHZlbHRyby1maWVsZCI+PHNwYW4gY2xhc3M9ImZpZWxkLWljb24gdXNlci1pY29uIj48L3NwYW4+PGlucHV0IGlkPSJ1c2VyaWQiIHBsYWNlaG9sZGVyPSLslYTsnbTrlJQiPjwvZGl2PgogICAgPGRpdiBjbGFzcz0iZmllbGQgdmVsdHJvLWZpZWxkIj48c3BhbiBjbGFzcz0iZmllbGQtaWNvbiBsb2NrLWljb24iPjwvc3Bhbj48aW5wdXQgaWQ9InBhc3N3b3JkIiB0eXBlPSJwYXNzd29yZCIgcGxhY2Vob2xkZXI9Iuu5hOuwgOuyiO2YuCI+PC9kaXY+CiAgICA8bGFiZWwgY2xhc3M9InJlbWVtYmVyIHZlbHRyby1yZW1lbWJlciI+PGlucHV0IHR5cGU9ImNoZWNrYm94IiBpZD0icmVtZW1iZXIiPjxzcGFuPuyVhOydtOuUlCDsoIDsnqU8L3NwYW4+PC9sYWJlbD4KICAgIDxidXR0b24gY2xhc3M9ImxvZ2luLXByaW1hcnkiIGlkPSJsb2dpbkJ0biI+66Gc6re47J24PC9idXR0b24+PGJ1dHRvbiBjbGFzcz0ibG9naW4tc2Vjb25kYXJ5IiBpZD0iam9pbkJ0biI+7ZqM7JuQ6rCA7J6F7ZWY6riwPC9idXR0b24+PGRpdiBjbGFzcz0ibG9naW4tZXJyb3IiIGlkPSJsb2dpbkVycm9yIj48L2Rpdj4KICA8L2Rpdj4KPC9kaXY+'))
+          $pattern = '(?s)<div class="login-art veltro-login-art">.*?<div class="login-error" id="loginError"></div>\s*</div>\s*</div>'
+          $renderer2 = [regex]::Replace($renderer,$pattern,[System.Text.RegularExpressions.MatchEvaluator]{param($m) $loginHtml},1)
+          if ($renderer2 -eq $renderer) { throw 'Login markup replacement failed' }
+          [IO.File]::WriteAllText($rendererPath,$renderer2,$utf8NoBom)
+          $css = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('Ci8qIFZFTFRSTyByZWZlcmVuY2UgbG9naW4gdjEuMC41ICovCi5sb2dpbi1zaGVsbHtoZWlnaHQ6MTAwdmg7ZGlzcGxheTpncmlkO2dyaWQtdGVtcGxhdGUtY29sdW1uczo1MyUgNDclO2JhY2tncm91bmQ6IzA2MTExZjtvdmVyZmxvdzpoaWRkZW47Zm9udC1mYW1pbHk6Ik1hbGd1biBHb3RoaWMiLCJTZWdvZSBVSSIsQXJpYWwsc2Fucy1zZXJpZn0KLnZlbHRyby1sb2dpbi1hcnR7cG9zaXRpb246cmVsYXRpdmU7ZGlzcGxheTpibG9jaztvdmVyZmxvdzpoaWRkZW47YmFja2dyb3VuZDpyYWRpYWwtZ3JhZGllbnQoY2lyY2xlIGF0IDUxJSA1NyUscmdiYSgxMCw5NiwxODAsLjU1KSx0cmFuc3BhcmVudCAzMSUpLHJhZGlhbC1ncmFkaWVudChjaXJjbGUgYXQgMTIlIDE2JSxyZ2JhKDYsNzMsMTM3LC4zNiksdHJhbnNwYXJlbnQgMjglKSxsaW5lYXItZ3JhZGllbnQoMTQ1ZGVnLCMwNDEwMWQgMCUsIzA2MTkyZCA0OCUsIzA3MTUyOCAxMDAlKX0KLnZlbHRyby1sb2dpbi1hcnQ6YmVmb3Jle2Rpc3BsYXk6YmxvY2s7Y29udGVudDoiIjtwb3NpdGlvbjphYnNvbHV0ZTtpbnNldDowO2JhY2tncm91bmQ6cmVwZWF0aW5nLWxpbmVhci1ncmFkaWVudCgwZGVnLHJnYmEoMzksMTIyLDIwNiwuMDU1KSAwIDFweCx0cmFuc3BhcmVudCAxcHggMzhweCkscmVwZWF0aW5nLWxpbmVhci1ncmFkaWVudCg5MGRlZyxyZ2JhKDM5LDEyMiwyMDYsLjA0NSkgMCAxcHgsdHJhbnNwYXJlbnQgMXB4IDQ4cHgpO29wYWNpdHk6Ljd9Ci52ZWx0cm8tbG9naW4tYXJ0OmFmdGVye2NvbnRlbnQ6IiI7cG9zaXRpb246YWJzb2x1dGU7bGVmdDotNCU7cmlnaHQ6LTIlO2JvdHRvbToxMiU7aGVpZ2h0OjM2JTtib3JkZXItcmFkaXVzOjUwJTtib3JkZXItdG9wOjJweCBzb2xpZCByZ2JhKDQ1LDE1MSwyNTUsLjU1KTtib3gtc2hhZG93OjAgLThweCAyMnB4IHJnYmEoMjAsMTMwLDI1NSwuMTQpLDAgLTMycHggNjBweCByZ2JhKDE1LDgwLDE1MCwuMDgpO3RyYW5zZm9ybTpza2V3WSgtNGRlZyl9Ci5tYXJrZXQtZ3JpZHtwb3NpdGlvbjphYnNvbHV0ZTtpbnNldDowO2JhY2tncm91bmQ6bGluZWFyLWdyYWRpZW50KDExMGRlZyx0cmFuc3BhcmVudCAwIDM1JSxyZ2JhKDIyLDEwNywyMDYsLjA4KSAzNSUgMzYlLHRyYW5zcGFyZW50IDM2JSAxMDAlKSxsaW5lYXItZ3JhZGllbnQoMThkZWcsdHJhbnNwYXJlbnQgMCA2MCUscmdiYSg0MCwxMzksMjM5LC4wOCkgNjAlIDYxJSx0cmFuc3BhcmVudCA2MSUpO29wYWNpdHk6Ljh9Ci5tYXJrZXQtbWFwe3Bvc2l0aW9uOmFic29sdXRlO2xlZnQ6LTQlO3RvcDo2JTt3aWR0aDo0NSU7aGVpZ2h0OjM2JTtvcGFjaXR5Oi4yODtiYWNrZ3JvdW5kLWltYWdlOnJhZGlhbC1ncmFkaWVudChjaXJjbGUsIzFlN2RkMyAxLjZweCx0cmFuc3BhcmVudCAxLjhweCk7YmFja2dyb3VuZC1zaXplOjhweCA4cHg7Y2xpcC1wYXRoOnBvbHlnb24oMCA4JSwxMCUgNCUsMjAlIDE1JSwyOSUgOCUsNDMlIDIwJSw1MyUgMTMlLDY3JSAyOCUsNzclIDE4JSw5MiUgMzElLDg0JSA0OSUsNzIlIDU1JSw2NiUgNzYlLDQ4JSA2NyUsMzclIDg2JSwyMiUgNzYlLDExJSA2MCUsMCA1NCUpfQoubG9naW4tdmlzdWFsLWNvcHl7cG9zaXRpb246YWJzb2x1dGU7dG9wOjEzJTtsZWZ0OjA7cmlnaHQ6MDt0ZXh0LWFsaWduOmNlbnRlcjt6LWluZGV4OjM7Y29sb3I6d2hpdGU7dGV4dC1zaGFkb3c6MCAycHggMThweCByZ2JhKDAsMCwwLC4zOCl9Ci52aXN1YWwtdGl0bGV7Zm9udC1zaXplOjU0cHg7bGluZS1oZWlnaHQ6MTtmb250LXdlaWdodDo3MDA7bGV0dGVyLXNwYWNpbmc6MTFweDtiYWNrZ3JvdW5kOmxpbmVhci1ncmFkaWVudCgjZmZmLCNhYWI3YzcgNzAlLCNmN2Y4ZmEpOy13ZWJraXQtYmFja2dyb3VuZC1jbGlwOnRleHQ7YmFja2dyb3VuZC1jbGlwOnRleHQ7Y29sb3I6dHJhbnNwYXJlbnR9Ci52aXN1YWwtc3VidGl0bGV7bWFyZ2luLXRvcDoxN3B4O2ZvbnQtc2l6ZToxNXB4O2xldHRlci1zcGFjaW5nOjEuM3B4O2NvbG9yOiM3MGI5ZjI7Zm9udC13ZWlnaHQ6NjAwfS52aXN1YWwtdGFnbGluZXttYXJnaW4tdG9wOjE3cHg7Zm9udC1zaXplOjEycHg7Y29sb3I6I2Q4ZTJlZX0KLmhlcm8tbG9nby1ib3h7cG9zaXRpb246YWJzb2x1dGU7ei1pbmRleDo0O3dpZHRoOjI4NXB4O2hlaWdodDoyODVweDtsZWZ0OjUwJTt0b3A6NDklO3RyYW5zZm9ybTp0cmFuc2xhdGUoLTUwJSwtNTAlKTtib3JkZXItcmFkaXVzOjU1cHg7ZGlzcGxheTpmbGV4O2FsaWduLWl0ZW1zOmNlbnRlcjtqdXN0aWZ5LWNvbnRlbnQ6Y2VudGVyO2JhY2tncm91bmQ6bGluZWFyLWdyYWRpZW50KDE0NWRlZywjMTkzZTc0LCMwNzE2MmEgNzIlKTtib3JkZXI6MnB4IHNvbGlkICMzMDc4YzQ7Ym94LXNoYWRvdzowIDAgMCA2cHggcmdiYSg5LDM1LDY0LC42NSksMCAwIDIycHggIzJmOTRmZiwwIDI4cHggNjVweCByZ2JhKDAsMCwwLC40OCksaW5zZXQgMCAycHggMThweCByZ2JhKDg3LDE2OCwyNTUsLjMpfQouaGVyby1sb2dvLWJveCBpbWd7d2lkdGg6ODYlO2hlaWdodDo4NiU7b2JqZWN0LWZpdDpjb250YWluO2Rpc3BsYXk6YmxvY2s7ZmlsdGVyOmRyb3Atc2hhZG93KDAgNXB4IDEwcHggcmdiYSgwLDAsMCwuMzUpKX0KLm1hcmtldC1jaGFydHtwb3NpdGlvbjphYnNvbHV0ZTt6LWluZGV4OjI7cmlnaHQ6LTIlO3RvcDoyMiU7d2lkdGg6NDMlO2hlaWdodDo0MCU7ZGlzcGxheTpmbGV4O2FsaWduLWl0ZW1zOmZsZXgtZW5kO2dhcDoxMHB4O3RyYW5zZm9ybTpza2V3WSgtN2RlZyk7b3BhY2l0eTouODh9Lm1hcmtldC1jaGFydDphZnRlcntjb250ZW50OiIiO3Bvc2l0aW9uOmFic29sdXRlO2xlZnQ6LTEwJTtyaWdodDowO2JvdHRvbToxNyU7aGVpZ2h0OjJweDtiYWNrZ3JvdW5kOmxpbmVhci1ncmFkaWVudCg5MGRlZyx0cmFuc3BhcmVudCwjMzBhNGZmIDIwJSwjOGVkMGZmIDYwJSx0cmFuc3BhcmVudCk7Ym94LXNoYWRvdzowIDAgOHB4ICMzNmE3ZmY7dHJhbnNmb3JtOnJvdGF0ZSgtMThkZWcpfQoubWFya2V0LWNoYXJ0IGl7ZGlzcGxheTpibG9jazt3aWR0aDoxMXB4O2JhY2tncm91bmQ6bGluZWFyLWdyYWRpZW50KCM5MWQzZmYsIzFjNjliZCk7Ym9yZGVyOjFweCBzb2xpZCByZ2JhKDEzMCwyMDgsMjU1LC41NSk7Ym94LXNoYWRvdzowIDAgOHB4IHJnYmEoNjQsMTU3LDI1NSwuMzQpfS5tYXJrZXQtY2hhcnQgaTpudGgtY2hpbGQoMSl7aGVpZ2h0OjE2JX0ubWFya2V0LWNoYXJ0IGk6bnRoLWNoaWxkKDIpe2hlaWdodDoyNSV9Lm1hcmtldC1jaGFydCBpOm50aC1jaGlsZCgzKXtoZWlnaHQ6MzElfS5tYXJrZXQtY2hhcnQgaTpudGgtY2hpbGQoNCl7aGVpZ2h0OjM4JX0ubWFya2V0LWNoYXJ0IGk6bnRoLWNoaWxkKDUpe2hlaWdodDo0NyV9Lm1hcmtldC1jaGFydCBpOm50aC1jaGlsZCg2KXtoZWlnaHQ6NTglfS5tYXJrZXQtY2hhcnQgaTpudGgtY2hpbGQoNyl7aGVpZ2h0OjY3JX0ubWFya2V0LWNoYXJ0IGk6bnRoLWNoaWxkKDgpe2hlaWdodDo3NiV9Lm1hcmtldC1jaGFydCBpOm50aC1jaGlsZCg5KXtoZWlnaHQ6ODklfS5tYXJrZXQtY2hhcnQgaTpudGgtY2hpbGQoMTApe2hlaWdodDo5OCV9Ci5mZWF0dXJlLXN0cmlwe3Bvc2l0aW9uOmFic29sdXRlO3otaW5kZXg6NTtsZWZ0OjYlO3JpZ2h0OjYlO2JvdHRvbTo3JTtoZWlnaHQ6MTE4cHg7ZGlzcGxheTpncmlkO2dyaWQtdGVtcGxhdGUtY29sdW1uczpyZXBlYXQoNCwxZnIpO2NvbG9yOiM5ZGI3ZDN9LmZlYXR1cmUtc3RyaXA+ZGl2e2Rpc3BsYXk6ZmxleDtmbGV4LWRpcmVjdGlvbjpjb2x1bW47YWxpZ24taXRlbXM6Y2VudGVyO3RleHQtYWxpZ246Y2VudGVyO2p1c3RpZnktY29udGVudDpmbGV4LXN0YXJ0O2JvcmRlci1yaWdodDoxcHggc29saWQgcmdiYSg5MSwxNDMsMTk2LC4yNSk7cGFkZGluZzowIDEwcHh9LmZlYXR1cmUtc3RyaXA+ZGl2Omxhc3QtY2hpbGR7Ym9yZGVyLXJpZ2h0OjB9LmZlYXR1cmUtc3RyaXAgYntmb250LXNpemU6MzFweDtsaW5lLWhlaWdodDozMnB4O2NvbG9yOiM1OGFlZjM7Zm9udC13ZWlnaHQ6NDAwO21hcmdpbi1ib3R0b206OHB4fS5mZWF0dXJlLXN0cmlwIHN0cm9uZ3tmb250LXNpemU6MTBweDtjb2xvcjojNjBiMGYwO2xldHRlci1zcGFjaW5nOi4ycHg7bWFyZ2luLWJvdHRvbTo3cHh9LmZlYXR1cmUtc3RyaXAgc3Bhbntmb250LXNpemU6OXB4O2xpbmUtaGVpZ2h0OjEuNTU7Y29sb3I6IzlhYWVjMn0udmVsdHJvLWxvZ2luLWFydCAudmVyc2lvbntsZWZ0OjE4cHg7Ym90dG9tOjE3cHg7Y29sb3I6I2YzZjVmODtmb250LXNpemU6MTFweDt6LWluZGV4Ojh9Ci5sb2dpbi1zaWRle3Bvc2l0aW9uOnJlbGF0aXZlO2Rpc3BsYXk6ZmxleDthbGlnbi1pdGVtczpjZW50ZXI7anVzdGlmeS1jb250ZW50OmNlbnRlcjtiYWNrZ3JvdW5kOnJhZGlhbC1ncmFkaWVudChjaXJjbGUgYXQgNTIlIDI4JSxyZ2JhKDE1LDQ5LDgwLC4yNiksdHJhbnNwYXJlbnQgMzUlKSxsaW5lYXItZ3JhZGllbnQoMTU1ZGVnLCMwNzFhMmQgMCUsIzA2MTExZiA1OCUsIzA2MTAxZCAxMDAlKTtjb2xvcjojZmZmO2JvcmRlci1sZWZ0OjFweCBzb2xpZCByZ2JhKDkwLDE0NSwxOTcsLjEzKX0KLmNsb3NlLWJ0bntwb3NpdGlvbjphYnNvbHV0ZTtyaWdodDoyNHB4O3RvcDoxMnB4O2JvcmRlcjowO2JhY2tncm91bmQ6dHJhbnNwYXJlbnQ7Y29sb3I6I2YxZjNmNjtmb250LXNpemU6MzhweDtmb250LXdlaWdodDoyMDA7Y3Vyc29yOnBvaW50ZXI7bGluZS1oZWlnaHQ6MTt6LWluZGV4OjV9LnZlbHRyby1yZWYtY2FyZHt3aWR0aDo0NzBweDttYXgtd2lkdGg6NzglO3RyYW5zZm9ybTp0cmFuc2xhdGVZKC0yJSl9LnZlbHRyby1icmFuZHttYXJnaW4tYm90dG9tOjYzcHg7YWxpZ24taXRlbXM6Y2VudGVyfS52ZWx0cm8td29yZG1hcmt7Zm9udC1zaXplOjM3cHg7bGV0dGVyLXNwYWNpbmc6OXB4O2ZvbnQtd2VpZ2h0OjYwMDtjb2xvcjojZjRmNWY2O3RleHQtc2hhZG93OjAgMXB4IDhweCByZ2JhKDI1NSwyNTUsMjU1LC4wOCl9LnZlbHRyby1zdWJ7Zm9udC1zaXplOjEwcHg7bGV0dGVyLXNwYWNpbmc6NHB4O2NvbG9yOiM3ZjkzYTk7bWFyZ2luLXRvcDoxNXB4fQoudmVsdHJvLWZpZWxke2hlaWdodDo2NHB4O2Rpc3BsYXk6ZmxleDthbGlnbi1pdGVtczpjZW50ZXI7Z2FwOjE1cHg7Ym9yZGVyLWJvdHRvbToxcHggc29saWQgcmdiYSgyMjAsMjMwLDI0MCwuNzIpO3BhZGRpbmc6MCA0cHg7bWFyZ2luOjB9LnZlbHRyby1maWVsZCsudmVsdHJvLWZpZWxke21hcmdpbi10b3A6MTZweH0udmVsdHJvLWZpZWxkIGlucHV0e2ZvbnQtZmFtaWx5OiJNYWxndW4gR290aGljIiwiU2Vnb2UgVUkiLHNhbnMtc2VyaWY7Y29sb3I6I2YzZjVmNztmb250LXNpemU6MTZweH0udmVsdHJvLWZpZWxkIGlucHV0OjpwbGFjZWhvbGRlcntjb2xvcjojNzc4NTk2O29wYWNpdHk6MX0uZmllbGQtaWNvbnt3aWR0aDoyMHB4O2hlaWdodDoyMHB4O2Rpc3BsYXk6aW5saW5lLWJsb2NrO3Bvc2l0aW9uOnJlbGF0aXZlO29wYWNpdHk6Ljk1O2ZsZXg6MCAwIDIwcHh9LnVzZXItaWNvbjpiZWZvcmV7Y29udGVudDoiIjtwb3NpdGlvbjphYnNvbHV0ZTt3aWR0aDo3cHg7aGVpZ2h0OjdweDtib3JkZXI6MnB4IHNvbGlkICNmMWYzZjU7Ym9yZGVyLXJhZGl1czo1MCU7bGVmdDo1cHg7dG9wOjB9LnVzZXItaWNvbjphZnRlcntjb250ZW50OiIiO3Bvc2l0aW9uOmFic29sdXRlO3dpZHRoOjEzcHg7aGVpZ2h0OjdweDtib3JkZXI6MnB4IHNvbGlkICNmMWYzZjU7Ym9yZGVyLXRvcDowO2JvcmRlci1yYWRpdXM6MCAwIDhweCA4cHg7bGVmdDoycHg7Ym90dG9tOjFweH0ubG9jay1pY29uOmJlZm9yZXtjb250ZW50OiIiO3Bvc2l0aW9uOmFic29sdXRlO3dpZHRoOjE0cHg7aGVpZ2h0OjEycHg7Ym9yZGVyOjJweCBzb2xpZCAjZjJiYzMyO2JvcmRlci1yYWRpdXM6MnB4O2xlZnQ6MnB4O2JvdHRvbTowfS5sb2NrLWljb246YWZ0ZXJ7Y29udGVudDoiIjtwb3NpdGlvbjphYnNvbHV0ZTt3aWR0aDo4cHg7aGVpZ2h0OjhweDtib3JkZXI6MnB4IHNvbGlkICNmMmJjMzI7Ym9yZGVyLWJvdHRvbTowO2JvcmRlci1yYWRpdXM6OHB4IDhweCAwIDA7bGVmdDo1cHg7dG9wOjB9Ci52ZWx0cm8tcmVtZW1iZXJ7ZGlzcGxheTpmbGV4O2FsaWduLWl0ZW1zOmNlbnRlcjtnYXA6N3B4O21hcmdpbjoyNnB4IDAgMzhweDtjb2xvcjojZDlkZmU1O2ZvbnQtc2l6ZToxNHB4fS52ZWx0cm8tcmVtZW1iZXIgaW5wdXR7d2lkdGg6MTZweDtoZWlnaHQ6MTZweDttYXJnaW46MDthY2NlbnQtY29sb3I6IzJhNmNhOX0ubG9naW4tcHJpbWFyeSwubG9naW4tc2Vjb25kYXJ5e3dpZHRoOjEwMCU7aGVpZ2h0OjYwcHg7Ym9yZGVyLXJhZGl1czozMnB4O2ZvbnQtc2l6ZToxN3B4O2ZvbnQtd2VpZ2h0OjcwMDtjdXJzb3I6cG9pbnRlcjt0cmFuc2l0aW9uOi4xNXN9LmxvZ2luLXByaW1hcnl7Ym9yZGVyOjFweCBzb2xpZCAjMmI2NGEzO2NvbG9yOiNmZmY7YmFja2dyb3VuZDpsaW5lYXItZ3JhZGllbnQoOTBkZWcsIzI0NWE5MyAwJSwjMjI2NWE0IDU4JSwjMjM1NThkIDEwMCUpO2JveC1zaGFkb3c6aW5zZXQgMCAxcHggMCByZ2JhKDI1NSwyNTUsMjU1LC4wOCl9LmxvZ2luLXByaW1hcnk6aG92ZXJ7ZmlsdGVyOmJyaWdodG5lc3MoMS4wNyl9LmxvZ2luLXNlY29uZGFyeXtib3JkZXI6MXB4IHNvbGlkICMzZjdlYjc7Y29sb3I6I2E5YzllODtiYWNrZ3JvdW5kOnJnYmEoNCwxNSwyOCwuMjIpO21hcmdpbi10b3A6MThweH0ubG9naW4tc2Vjb25kYXJ5OmhvdmVye2JhY2tncm91bmQ6cmdiYSgzMSw4MywxMzAsLjE0KX0ubG9naW4tZXJyb3J7aGVpZ2h0OjI0cHg7Y29sb3I6I2ZmODc5NDtmb250LXNpemU6MTNweDttYXJnaW4tdG9wOjEwcHg7dGV4dC1hbGlnbjpjZW50ZXJ9Cg=='))
+          Add-Content -Path (Join-Path $PWD 'desktop/build/src/styles.css') -Value $css -Encoding UTF8
           $mainPath = Join-Path $PWD 'desktop/build/src/main.js'
-          $main = Get-Content $mainPath -Raw -Encoding UTF8
-          $main = $main.Replace('cash: 30000000','cash: 0')
-          [IO.File]::WriteAllText($mainPath, $main, $utf8NoBom)
-
+          $main = (Get-Content $mainPath -Raw -Encoding UTF8).Replace('cash: 30000000','cash: 0')
+          [IO.File]::WriteAllText($mainPath,$main,$utf8NoBom)
           $pkgPath = Join-Path $PWD 'desktop/build/package.json'
           $pkg = Get-Content $pkgPath -Raw -Encoding UTF8 | ConvertFrom-Json
           $pkg.version = '1.0.5'
@@ -183,14 +75,14 @@ jobs:
           $pkg.build.files = @('src/**/*','assets/**/*','package.json')
           $pkg.build.win.icon = 'assets/veltro_logo.png'
           $pkg.build.nsis.artifactName = 'VELTRO_HTS_Setup.${ext}'
-          $pkgJson = $pkg | ConvertTo-Json -Depth 20
-          [IO.File]::WriteAllText($pkgPath, $pkgJson, $utf8NoBom)
+          [IO.File]::WriteAllText($pkgPath,($pkg | ConvertTo-Json -Depth 20),$utf8NoBom)
 
       - name: Install dependencies
         working-directory: desktop/build
         run: npm install --no-audit --no-fund
 
       - name: Validate sources
+        shell: pwsh
         working-directory: desktop/build
         run: |
           node --check src/main.js
@@ -207,7 +99,7 @@ jobs:
 
       - name: Read version
         id: version
-        shell: powershell
+        shell: pwsh
         run: |
           $v = node -p "require('./desktop/build/package.json').version"
           "version=$v" >> $env:GITHUB_OUTPUT
@@ -237,7 +129,7 @@ jobs:
             --target main \
             --latest \
             --title "VELTRO HTS v$VERSION" \
-            --notes "VELTRO HTS login screen design update only, preserving existing HTS functions and data integration."
+            --notes "VELTRO HTS login screen design update only. Existing HTS functions and data integration preserved."
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
