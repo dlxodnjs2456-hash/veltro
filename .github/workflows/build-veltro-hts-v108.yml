@@ -23,7 +23,7 @@ jobs:
         shell: pwsh
         run: |
           @'
-          import pathlib, re
+          import pathlib, re, textwrap
 
           root = pathlib.Path.cwd()
           workflow = (root / '.github' / 'workflows' / 'build-veltro-hts-v107.yml').read_text(encoding='utf-8')
@@ -31,7 +31,7 @@ jobs:
           if not m:
               raise RuntimeError('Could not extract v1.0.7 build patch script')
 
-          script = m.group(1)
+          script = textwrap.dedent(m.group(1))
           script = script.replace("'1.0.7'", "'1.0.8'")
           script = script.replace('v 1.0.7', 'v 1.0.8')
           script = script.replace('v1.0.7', 'v1.0.8')
@@ -48,12 +48,7 @@ jobs:
               "if 'login_left_v107.jpg' not in final_renderer:\n    raise RuntimeError('v1.0.8 left poster is missing from login markup')",
               "if 'data:image/jpeg;base64,' not in final_renderer:\n    raise RuntimeError('v1.0.8 embedded left poster is missing from login markup')"
           )
-          script = script.replace(
-              "if 'login_left_v107.jpg' not in final_renderer:\n              raise RuntimeError('v1.0.8 left poster is missing from login markup')",
-              "if 'data:image/jpeg;base64,' not in final_renderer:\n              raise RuntimeError('v1.0.8 embedded left poster is missing from login markup')"
-          )
 
-          # Extra hard assertion: renderer must contain the embedded data URI, not a relative file path.
           script += "\nfinal_renderer = renderer_path.read_text(encoding='utf-8')\n"
           script += "if 'data:image/jpeg;base64,' not in final_renderer:\n    raise RuntimeError('embedded poster data URI not found')\n"
           script += "if '../assets/login_left_v107.jpg' in final_renderer:\n    raise RuntimeError('relative poster path still present')\n"
