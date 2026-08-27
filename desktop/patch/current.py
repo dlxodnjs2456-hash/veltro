@@ -10,7 +10,11 @@ version = os.environ.get('VELTRO_VERSION', '').strip()
 if not re.fullmatch(r'\d+\.\d+\.\d+', version):
     raise RuntimeError(f'Invalid VELTRO_VERSION: {version!r}')
 
-poster_b64 = re.sub(r'\s+', '', (root / 'desktop' / 'patch' / 'login_left.b64').read_text(encoding='utf-8'))
+# Use the approved VELTRO poster asset already stored in the repository.
+poster_b64 = ''
+poster_b64 += (root / 'desktop' / 'branding' / 'login_left_v107_part0.b64').read_text(encoding='utf-8')
+poster_b64 += (root / 'desktop' / 'branding' / 'login_left_v107_part1.b64').read_text(encoding='utf-8')
+poster_b64 = re.sub(r'\s+', '', poster_b64)
 poster = base64.b64decode(poster_b64)
 if len(poster) < 50000:
     raise RuntimeError('login poster asset is unexpectedly small')
@@ -18,7 +22,7 @@ asset_path.parent.mkdir(parents=True, exist_ok=True)
 asset_path.write_bytes(poster)
 
 renderer = renderer_path.read_text(encoding='utf-8')
-# Remove the old asynchronous poster loader. The poster is now a normal packaged asset.
+# Remove the broken asynchronous runtime poster loader. The poster is now a normal packaged asset.
 renderer = re.sub(r"(?m)^\s*window\.desktop\?\.assetUrl\?\.\('login_left_v\d+\.jpg'\).*?\.catch\(\(\)=>\{\}\);\s*$", '', renderer)
 
 left_pattern = re.compile(
