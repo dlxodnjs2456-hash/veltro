@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - 'desktop/RELEASE'
+      - 'desktop/patch/**'
       - '.github/workflows/build-veltro-hts.yml'
 
 permissions:
