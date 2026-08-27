@@ -1,0 +1,251 @@
+name: Build VELTRO HTS v1.0.9 login poster asset fix
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/build-veltro-hts-v109.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Rebuild source and apply v1.0.9 login poster asset fix
+        shell: pwsh
+        run: |
+          @'
+          import base64, json, pathlib, re, shutil, zipfile
+
+          root = pathlib.Path.cwd()
+          desktop = root / 'desktop'
+          build = desktop / 'build'
+          if build.exists():
+              shutil.rmtree(build)
+
+          p0 = (desktop / 'v102_parts' / 'part_00').read_text(encoding='utf-8')
+          b64 = p0[:9000]
+          for i in range(1, 6):
+              b64 += (desktop / 'v102_parts' / f'part_{i:02d}').read_text(encoding='utf-8')
+          b64 += (desktop / 'v102_parts' / 'part_06').read_text(encoding='utf-8')
+          b64 += (desktop / 'v102_parts' / 'part_06b').read_text(encoding='utf-8')
+          for i in range(7, 14):
+              b64 += (desktop / 'v102_parts' / f'part_{i:02d}').read_text(encoding='utf-8')
+          b64 += (desktop / 'v102_parts' / 'part_14a').read_text(encoding='utf-8')
+          b64 += (desktop / 'v102_parts' / 'part_14b').read_text(encoding='utf-8')
+          for i in range(15, 17):
+              b64 += (desktop / 'v102_parts' / f'part_{i:02d}').read_text(encoding='utf-8')
+          b64 = re.sub(r'\s+', '', b64)
+          if len(b64) != 150648:
+              raise RuntimeError(f'Unexpected source base64 length: {len(b64)}')
+
+          source_zip = desktop / 'source-v109.zip'
+          source_zip.write_bytes(base64.b64decode(b64))
+          with zipfile.ZipFile(source_zip) as z:
+              for info in z.infolist():
+                  normalized = info.filename.replace('\\', '/').lower()
+                  if normalized == 'assets/veltro_logo.png':
+                      continue
+                  z.extract(info, build)
+
+          logo_b64 = re.sub(r'\s+', '', (desktop / 'branding' / 'veltro_logo.b64').read_text(encoding='utf-8'))
+          (build / 'assets').mkdir(parents=True, exist_ok=True)
+          (build / 'assets' / 'veltro_logo.png').write_bytes(base64.b64decode(logo_b64))
+
+          poster_b64 = ''
+          poster_b64 += (desktop / 'branding' / 'login_left_v107_part0.b64').read_text(encoding='utf-8')
+          poster_b64 += (desktop / 'branding' / 'login_left_v107_part1.b64').read_text(encoding='utf-8')
+          poster_b64 = re.sub(r'\s+', '', poster_b64)
+          poster_bytes = base64.b64decode(poster_b64)
+          if len(poster_bytes) < 15000:
+              raise RuntimeError('login poster asset is unexpectedly small')
+          poster_path = build / 'assets' / 'login_left_v109.jpg'
+          poster_path.write_bytes(poster_bytes)
+          if not poster_path.exists() or poster_path.stat().st_size != len(poster_bytes):
+              raise RuntimeError('login poster asset write failed')
+
+          base_workflow = (root / '.github' / 'workflows' / 'build-veltro-hts.yml').read_text(encoding='utf-8')
+          hm = re.search(r"\$loginHtml\s*=.*?FromBase64String\('([^']+)'\)", base_workflow, re.S)
+          cm = re.search(r"\$css\s*=.*?FromBase64String\('([^']+)'\)", base_workflow, re.S)
+          if not hm or not cm:
+              raise RuntimeError('Could not extract approved login layout')
+          login_html = base64.b64decode(hm.group(1)).decode('utf-8')
+          login_css = base64.b64decode(cm.group(1)).decode('utf-8')
+
+          login_html = login_html.replace('<span class="field-icon user-icon"></span>', '<span class="field-icon user-icon">&#128100;</span>')
+          login_html = login_html.replace('<span class="field-icon lock-icon"></span>', '<span class="field-icon lock-icon">&#128274;</span>')
+
+          left_html = '''<div class="login-art veltro-login-art exact-poster-art" id="loginPoster">
+            <div class="version" id="version">v 1.0.9</div>
+          </div>
+          '''
+          login_html2, left_count = re.subn(
+              r'<div class="login-art veltro-login-art">.*?(?=<div class="login-side">)',
+              left_html,
+              login_html,
+              count=1,
+              flags=re.S
+          )
+          if left_count != 1:
+              raise RuntimeError('Left login panel replacement failed')
+          login_html = login_html2.replace('v 1.0.5', 'v 1.0.9')
+
+          icon_css = r'''
+          .veltro-ref-card .user-icon::before,
+          .veltro-ref-card .user-icon::after,
+          .veltro-ref-card .lock-icon::before,
+          .veltro-ref-card .lock-icon::after { content:none !important; display:none !important; }
+          .veltro-ref-card .field-icon {
+            display:inline-flex !important; align-items:center !important; justify-content:center !important;
+            width:30px !important; min-width:30px !important; height:30px !important;
+            padding:0 !important; margin:0 12px 0 0 !important;
+            font-family:"Segoe UI Emoji","Segoe UI Symbol",sans-serif !important;
+            font-size:21px !important; line-height:1 !important; background:transparent !important;
+            border:0 !important; box-shadow:none !important;
+          }
+          .veltro-ref-card .user-icon { color:#ffffff !important; }
+          .veltro-ref-card .lock-icon { color:#ffc400 !important; }
+          '''
+
+          poster_css = r'''
+          .exact-poster-art {
+            position:relative !important; overflow:hidden !important; padding:0 !important;
+            background-color:#03101f !important; background-position:center center !important;
+            background-repeat:no-repeat !important; background-size:cover !important;
+          }
+          .exact-poster-art::before,.exact-poster-art::after { content:none !important; display:none !important; }
+          .exact-poster-art .version {
+            z-index:10 !important; left:14px !important; bottom:10px !important; color:#ffffff !important;
+            background:rgba(3,16,31,.72) !important; padding:3px 7px !important; border-radius:2px !important;
+          }
+          '''
+
+          index = '<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>VELTRO HTS</title><link rel="stylesheet" href="styles.css"></head><body><div id="app"></div><script src="renderer.js"></script></body></html>'
+          (build / 'src' / 'index.html').write_text(index, encoding='utf-8')
+
+          renderer_path = build / 'src' / 'renderer.js'
+          renderer = renderer_path.read_text(encoding='utf-8')
+          renderer = re.sub(r"(?m)^\s*'6EU26':.*\r?\n", '', renderer)
+          renderer = re.sub(r"(?m)^\s*'6BU26':.*\r?\n", '', renderer)
+          renderer = renderer.replace("'6BU26':{region:'US',code:'6B'}, '6EU26':{region:'US',code:'6E'}, '6JU26':{region:'US',code:'6J'}, HSIQ26:{region:'HK',code:'HSI'}", "'6JU26':{region:'US',code:'6J'}, HSIQ26:{region:'HK',code:'HSI'}")
+          renderer = renderer.replace('cash: 30000000', 'cash: 0')
+          for v in ['1.0.0','1.0.1','1.0.2','1.0.3','1.0.4','1.0.5','1.0.6','1.0.7','1.0.8']:
+              renderer = renderer.replace(f'v {v}', 'v 1.0.9')
+
+          pattern = re.compile(r'<div class="login-art veltro-login-art">.*?<div class="login-error" id="loginError"></div>\s*</div>\s*</div>', re.S)
+          renderer2, n = pattern.subn(login_html, renderer, count=1)
+          if n != 1:
+              raise RuntimeError('Login markup replacement failed')
+          renderer = renderer2
+
+          version_line = "window.desktop?.version().then(v => document.getElementById('version').textContent = `v ${v}`);"
+          asset_line = "window.desktop?.assetUrl?.('login_left_v109.jpg').then(u => { const poster=document.getElementById('loginPoster'); if(poster&&u) poster.style.backgroundImage=`url(\\\"${u}\\\")`; }).catch(()=>{});"
+          if version_line not in renderer:
+              raise RuntimeError('Could not find login version binding')
+          renderer = renderer.replace(version_line, version_line + '\n  ' + asset_line, 1)
+          renderer_path.write_text(renderer, encoding='utf-8')
+
+          styles_path = build / 'src' / 'styles.css'
+          styles = styles_path.read_text(encoding='utf-8')
+          styles_path.write_text(styles + '\n' + login_css + '\n' + icon_css + '\n' + poster_css, encoding='utf-8')
+
+          main_path = build / 'src' / 'main.js'
+          main = main_path.read_text(encoding='utf-8').replace('cash: 30000000', 'cash: 0')
+          if "const { pathToFileURL } = require('url');" not in main:
+              main = main.replace("const path = require('path');", "const path = require('path');\nconst { pathToFileURL } = require('url');", 1)
+          handler_anchor = "ipcMain.handle('app:quit',()=>app.quit());"
+          asset_handler = "ipcMain.handle('app:asset-url',(_e,fileName)=>{const safeName=path.basename(String(fileName||''));const fullPath=path.join(__dirname,'..','assets',safeName);return pathToFileURL(fullPath).toString();});"
+          if handler_anchor not in main:
+              raise RuntimeError('Could not find app:quit IPC handler')
+          main = main.replace(handler_anchor, handler_anchor + '\n' + asset_handler, 1)
+          main_path.write_text(main, encoding='utf-8')
+
+          preload_path = build / 'src' / 'preload.js'
+          preload = preload_path.read_text(encoding='utf-8')
+          preload_anchor = "quit: () => ipcRenderer.invoke('app:quit'),"
+          if preload_anchor not in preload:
+              raise RuntimeError('Could not find preload quit binding')
+          preload = preload.replace(preload_anchor, preload_anchor + "\n  assetUrl: (fileName) => ipcRenderer.invoke('app:asset-url', fileName),", 1)
+          preload_path.write_text(preload, encoding='utf-8')
+
+          pkg_path = build / 'package.json'
+          pkg = json.loads(pkg_path.read_text(encoding='utf-8-sig'))
+          pkg['version'] = '1.0.9'
+          pkg.setdefault('scripts', {})['release:win'] = 'electron-builder --win nsis --publish never'
+          pkg.setdefault('dependencies', {})['electron-updater'] = '^6.6.2'
+          pkg['build']['files'] = ['src/**/*', 'assets/**/*', 'package.json']
+          pkg['build']['win']['icon'] = 'assets/veltro_logo.png'
+          pkg['build']['nsis']['artifactName'] = 'VELTRO_HTS_Setup.${ext}'
+          pkg_path.write_text(json.dumps(pkg, ensure_ascii=False, indent=2), encoding='utf-8')
+
+          final_renderer = renderer_path.read_text(encoding='utf-8')
+          final_main = main_path.read_text(encoding='utf-8')
+          final_preload = preload_path.read_text(encoding='utf-8')
+          final_styles = styles_path.read_text(encoding='utf-8')
+          if 'id="loginPoster"' not in final_renderer: raise RuntimeError('loginPoster panel is missing')
+          if "assetUrl?.('login_left_v109.jpg')" not in final_renderer: raise RuntimeError('renderer assetUrl call is missing')
+          if "app:asset-url" not in final_main or "pathToFileURL" not in final_main: raise RuntimeError('main asset URL handler is missing')
+          if "assetUrl:" not in final_preload: raise RuntimeError('preload assetUrl bridge is missing')
+          if 'background-size:cover !important' not in final_styles: raise RuntimeError('poster background CSS is missing')
+          if '&#128100;' not in final_renderer or '&#128274;' not in final_renderer: raise RuntimeError('login icons are missing')
+          if not poster_path.exists() or poster_path.stat().st_size < 15000: raise RuntimeError('poster asset missing before build')
+          print('v1.0.9 login poster packaged-asset fix verified')
+          '@ | Set-Content -Path patch_v109.py -Encoding UTF8
+          python patch_v109.py
+
+      - name: Install dependencies
+        working-directory: desktop/build
+        run: npm install --no-audit --no-fund
+
+      - name: Validate JavaScript
+        working-directory: desktop/build
+        run: |
+          node --check src/main.js
+          node --check src/preload.js
+          node --check src/renderer.js
+
+      - name: Build NSIS installer
+        working-directory: desktop/build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: npm run release:win
+
+      - name: Replace v1.0.9 release if necessary
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view v1.0.9 >/dev/null 2>&1; then
+            gh release delete v1.0.9 --cleanup-tag --yes
+          fi
+
+      - name: Publish v1.0.9 auto-update release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create v1.0.9 \
+            desktop/build/dist/VELTRO_HTS_Setup.exe \
+            desktop/build/dist/VELTRO_HTS_Setup.exe.blockmap \
+            desktop/build/dist/latest.yml \
+            --target main \
+            --latest \
+            --title "VELTRO HTS v1.0.9" \
+            --notes "Login-screen-only hotfix. The approved VELTRO left poster is packaged in assets and resolved at runtime through a main-process file URL, then applied as a single CSS background. Existing login icons and all HTS functionality/data are preserved."
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VELTRO-HTS-Setup-1.0.9
+          path: |
+            desktop/build/dist/VELTRO_HTS_Setup.exe
+            desktop/build/dist/VELTRO_HTS_Setup.exe.blockmap
+            desktop/build/dist/latest.yml
