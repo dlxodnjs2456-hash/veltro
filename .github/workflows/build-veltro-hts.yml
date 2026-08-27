@@ -21,7 +21,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -40,48 +39,25 @@ jobs:
         run: |
           @'
           import pathlib, re, subprocess, sys, textwrap
-
-          root = pathlib.Path.cwd()
-          base_workflow_path = root / '.github' / 'workflows' / 'build-veltro-hts.yml'
-          current_workflow = base_workflow_path.read_text(encoding='utf-8')
-          legacy_ref = 'd8e4b5720be775c2161d21e0fa251f882bf35f9c'
-          legacy_workflow = subprocess.check_output(
-              ['git', 'show', f'{legacy_ref}:.github/workflows/build-veltro-hts.yml'],
-              text=True,
-              encoding='utf-8',
-          )
-
+          root=pathlib.Path.cwd()
+          base_workflow_path=root/'.github'/'workflows'/'build-veltro-hts.yml'
+          current_workflow=base_workflow_path.read_text(encoding='utf-8')
+          legacy_ref='d8e4b5720be775c2161d21e0fa251f882bf35f9c'
+          legacy_workflow=subprocess.check_output(['git','show',f'{legacy_ref}:.github/workflows/build-veltro-hts.yml'],text=True,encoding='utf-8')
           try:
-              base_workflow_path.write_text(legacy_workflow, encoding='utf-8')
-              wf_path = root / '.github' / 'workflows' / 'build-veltro-hts-v112.yml'
-              wf = wf_path.read_text(encoding='utf-8')
-
-              m1 = re.search(
-                  r"- name: Rebuild v1\.0\.11 source exactly.*?run: \|\s*@'\s*\n(.*?)\n\s*'@ \| Set-Content -Path extract_v111\.py",
-                  wf,
-                  re.S,
-              )
-              if not m1:
-                  raise RuntimeError('Could not extract the verified v1.0.11 rebuild bootstrap')
-              bootstrap = textwrap.dedent(m1.group(1))
-              exec(compile(bootstrap, 'extract_v111.py', 'exec'), {'__name__': '__main__'})
-              subprocess.run([sys.executable, 'make_v111.py'], check=True)
-              subprocess.run([sys.executable, 'patch_v111.py'], check=True)
-
-              m2 = re.search(
-                  r"- name: Apply v1\.0\.12 login-poster-only runtime fix.*?run: \|\s*@'\s*\n(.*?)\n\s*'@ \| Set-Content -Path patch_v112\.py",
-                  wf,
-                  re.S,
-              )
-              if not m2:
-                  raise RuntimeError('Could not extract the verified v1.0.12 patch')
-              patch112 = textwrap.dedent(m2.group(1))
-              exec(compile(patch112, 'patch_v112.py', 'exec'), {'__name__': '__main__'})
+              base_workflow_path.write_text(legacy_workflow,encoding='utf-8')
+              wf=(root/'.github'/'workflows'/'build-veltro-hts-v112.yml').read_text(encoding='utf-8')
+              m1=re.search(r"- name: Rebuild v1\.0\.11 source exactly.*?run: \|\s*@'\s*\n(.*?)\n\s*'@ \| Set-Content -Path extract_v111\.py",wf,re.S)
+              if not m1: raise RuntimeError('Could not extract the verified v1.0.11 rebuild bootstrap')
+              exec(compile(textwrap.dedent(m1.group(1)),'extract_v111.py','exec'),{'__name__':'__main__'})
+              subprocess.run([sys.executable,'make_v111.py'],check=True)
+              subprocess.run([sys.executable,'patch_v111.py'],check=True)
+              m2=re.search(r"- name: Apply v1\.0\.12 login-poster-only runtime fix.*?run: \|\s*@'\s*\n(.*?)\n\s*'@ \| Set-Content -Path patch_v112\.py",wf,re.S)
+              if not m2: raise RuntimeError('Could not extract the verified v1.0.12 patch')
+              exec(compile(textwrap.dedent(m2.group(1)),'patch_v112.py','exec'),{'__name__':'__main__'})
           finally:
-              base_workflow_path.write_text(current_workflow, encoding='utf-8')
-
-          if not (root / 'desktop' / 'build' / 'package.json').exists():
-              raise RuntimeError('v1.0.12 base rebuild did not produce desktop/build')
+              base_workflow_path.write_text(current_workflow,encoding='utf-8')
+          if not (root/'desktop'/'build'/'package.json').exists(): raise RuntimeError('v1.0.12 base rebuild did not produce desktop/build')
           print('Verified v1.0.12 base reconstructed')
           '@ | Set-Content -Path rebuild_verified_base.py -Encoding UTF8
           python rebuild_verified_base.py
@@ -115,10 +91,10 @@ jobs:
           $poster = Join-Path $PWD 'desktop/build/dist/win-unpacked/resources/login-left.jpg'
           if (!(Test-Path $poster)) { throw "Packaged login poster missing: $poster" }
           $hash = (Get-FileHash $poster -Algorithm SHA256).Hash.ToLower()
-          $expected = '22f0623159bb5f08b946044266b47f859919e7fc2352d389292b5f084ace4644'
+          $expected = 'cfb09ef3360604f7681baa38737fa48275d65064693c5ab0cc172c61617ed7e0'
           if ($hash -ne $expected) { throw "Packaged login poster hash mismatch: $hash" }
           $size = (Get-Item $poster).Length
-          if ($size -ne 11309) { throw "Packaged login poster size mismatch: $size" }
+          if ($size -ne 7201) { throw "Packaged login poster size mismatch: $size" }
           Write-Host "Packaged login poster verified: $hash ($size bytes)"
 
       - name: Publish auto-update release
@@ -128,15 +104,12 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           TAG="v${VERSION}"
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release delete "$TAG" --cleanup-tag --yes
-          fi
+          if gh release view "$TAG" >/dev/null 2>&1; then gh release delete "$TAG" --cleanup-tag --yes; fi
           gh release create "$TAG" \
             desktop/build/dist/VELTRO_HTS_Setup.exe \
             desktop/build/dist/VELTRO_HTS_Setup.exe.blockmap \
             desktop/build/dist/latest.yml \
-            --target main \
-            --latest \
+            --target main --latest \
             --title "VELTRO HTS v${VERSION}" \
             --notes "VELTRO HTS automatic patch release. Login poster is packaged as a verified Electron extraResource and loaded through the preload bridge with an in-app fallback. Existing trading, market-data, account, DB, member, balance, order, position, deposit/withdrawal, notification, and updater behavior is preserved unless explicitly patched."
 
