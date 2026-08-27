@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - 'desktop/RELEASE'
+      - 'desktop/branding/**'
       - '.github/workflows/build-veltro-hts.yml'
 
 permissions:
@@ -47,6 +48,20 @@ jobs:
         shell: pwsh
         run: |
           $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+
+          # The archived v1.0.2 source contains a damaged PNG (bad CRC/IDAT).
+          # Always restore the verified VELTRO V logo before packaging.
+          $logoB64 = (Get-Content (Join-Path $PWD 'desktop/branding/veltro_logo.b64') -Raw -Encoding UTF8) -replace '\s',''
+          $logoBytes = [Convert]::FromBase64String($logoB64)
+          $logoPath = Join-Path $PWD 'desktop/build/assets/veltro_logo.png'
+          [IO.File]::WriteAllBytes($logoPath, $logoBytes)
+          if ((Get-Item $logoPath).Length -lt 5000) { throw 'VELTRO logo asset is unexpectedly small' }
+          Add-Type -AssemblyName System.Drawing
+          $img = [System.Drawing.Image]::FromFile($logoPath)
+          if ($img.Width -ne 256 -or $img.Height -ne 256) { $img.Dispose(); throw "Unexpected VELTRO logo dimensions: $($img.Width)x$($img.Height)" }
+          $img.Dispose()
+          Write-Host "Verified VELTRO logo SHA256: $((Get-FileHash $logoPath -Algorithm SHA256).Hash.ToLower())"
+
           $index = @'
           <!doctype html>
           <html lang="ko">
@@ -70,7 +85,7 @@ jobs:
           $renderer = $renderer -replace "(?m)^\s*'6BU26':.*\r?\n", ''
           $renderer = $renderer.Replace("'6BU26':{region:'US',code:'6B'}, '6EU26':{region:'US',code:'6E'}, '6JU26':{region:'US',code:'6J'}, HSIQ26:{region:'HK',code:'HSI'}", "'6JU26':{region:'US',code:'6J'}, HSIQ26:{region:'HK',code:'HSI'}")
           $renderer = $renderer.Replace('cash: 30000000','cash: 0')
-          $renderer = $renderer.Replace('v 1.0.0','v 1.0.3').Replace('v 1.0.1','v 1.0.3').Replace('v 1.0.2','v 1.0.3')
+          $renderer = $renderer.Replace('v 1.0.0','v 1.0.4').Replace('v 1.0.1','v 1.0.4').Replace('v 1.0.2','v 1.0.4').Replace('v 1.0.3','v 1.0.4')
           [IO.File]::WriteAllText($rendererPath, $renderer, $utf8NoBom)
 
           $mainPath = Join-Path $PWD 'desktop/build/src/main.js'
@@ -80,11 +95,12 @@ jobs:
 
           $pkgPath = Join-Path $PWD 'desktop/build/package.json'
           $pkg = Get-Content $pkgPath -Raw -Encoding UTF8 | ConvertFrom-Json
-          $pkg.version = '1.0.3'
+          $pkg.version = '1.0.4'
           $pkg.scripts | Add-Member -NotePropertyName 'release:win' -NotePropertyValue 'electron-builder --win nsis --publish never' -Force
           if (-not $pkg.dependencies) { $pkg | Add-Member -NotePropertyName dependencies -NotePropertyValue ([pscustomobject]@{}) }
           $pkg.dependencies | Add-Member -NotePropertyName 'electron-updater' -NotePropertyValue '^6.6.2' -Force
           $pkg.build.files = @('src/**/*','assets/**/*','package.json')
+          $pkg.build.win.icon = 'assets/veltro_logo.png'
           $pkg.build.nsis.artifactName = 'VELTRO_HTS_Setup.${ext}'
           $pkgJson = $pkg | ConvertTo-Json -Depth 20
           [IO.File]::WriteAllText($pkgPath, $pkgJson, $utf8NoBom)
@@ -100,6 +116,7 @@ jobs:
           node --check src/preload.js
           node --check src/renderer.js
           if (!(Test-Path src/index.html)) { throw 'src/index.html missing' }
+          if (!(Test-Path assets/veltro_logo.png)) { throw 'VELTRO logo missing' }
 
       - name: Build NSIS installer
         working-directory: desktop/build
@@ -139,7 +156,7 @@ jobs:
             --target main \
             --latest \
             --title "VELTRO HTS v$VERSION" \
-            --notes "VELTRO HTS Windows installer with UTF-8 fix and automatic updates."
+            --notes "VELTRO HTS branding asset repair, UTF-8 fix, and automatic updates."
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
