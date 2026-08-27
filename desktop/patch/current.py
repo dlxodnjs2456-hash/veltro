@@ -19,6 +19,7 @@ asset_path.write_bytes(poster); resource_path.write_bytes(poster)
 renderer=renderer_path.read_text(encoding='utf-8')
 renderer=re.sub(r"(?m)^\s*window\.desktop\?\.assetUrl\?\.\('login_left_v\d+\.jpg'\).*?\.catch\(\(\)=>\{\}\);\s*$",'',renderer)
 renderer=re.sub(r"(?m)^\s*window\.desktop\?\.loginPosterUrl\?\.\(\).*?\.catch\(\(\)=>\{\}\);\s*$",'',renderer)
+renderer=re.sub(r"(?m)^\s*fetch\('https://mzjkvakigwtlibwlslhq\.supabase\.co/functions/v1/hts-config'.*?$",'',renderer)
 left_pattern=re.compile(r'<div class="login-art veltro-login-art exact-poster-art" id="loginPoster">\s*(?:<img[^>]+>\s*)?<div class="version" id="version">v [^<]+</div>\s*</div>',re.S)
 left_html=f'''<div class="login-art veltro-login-art exact-poster-art" id="loginPoster">
             <img class="veltro-login-poster-img" id="loginPosterImage" src="../assets/login_left_current.jpg" alt="VELTRO">
@@ -29,16 +30,17 @@ if n!=1: raise RuntimeError('Could not replace login poster panel')
 renderer=re.sub(r'v 1\.0\.\d+',f'v {version}',renderer)
 version_line="window.desktop?.version().then(v => document.getElementById('version').textContent = `v ${v}`);"
 poster_line="window.desktop?.loginPosterUrl?.().then(u => { const img=document.getElementById('loginPosterImage'); if(img&&u) img.src=u; }).catch(()=>{});"
+remote_line="fetch('https://mzjkvakigwtlibwlslhq.supabase.co/functions/v1/hts-config',{cache:'no-store'}).then(r=>r.ok?r.json():null).then(cfg=>{const img=document.getElementById('loginPosterImage');if(img&&cfg?.login_image_data&&String(cfg.login_image_data).startsWith('data:image/'))img.src=cfg.login_image_data;}).catch(()=>{});"
 if version_line not in renderer: raise RuntimeError('Could not find version binding')
-renderer=renderer.replace(version_line,version_line+'\n  '+poster_line,1)
+renderer=renderer.replace(version_line,version_line+'\n  '+poster_line+'\n  '+remote_line,1)
 renderer_path.write_text(renderer,encoding='utf-8')
 
 styles=styles_path.read_text(encoding='utf-8')+r'''
 
-/* Stable packaged login poster v3 */
+/* Stable packaged login poster v4: admin remote image + local fallback */
 .exact-poster-art{position:relative!important;overflow:hidden!important;padding:0!important;background:#03101f!important;display:block!important}
 .exact-poster-art::before,.exact-poster-art::after{content:none!important;display:none!important}
-.veltro-login-poster-img{position:absolute!important;inset:0!important;width:100%!important;height:100%!important;display:block!important;object-fit:cover!important;object-position:center center!important;z-index:1!important;opacity:1!important;visibility:visible!important}
+.veltro-login-poster-img{position:absolute!important;inset:0!important;width:100%!important;height:100%!important;display:block!important;object-fit:contain!important;object-position:center center!important;z-index:1!important;opacity:1!important;visibility:visible!important;background:#03101f!important}
 .exact-poster-art .version{position:absolute!important;z-index:5!important;left:14px!important;bottom:10px!important;color:#fff!important;background:rgba(3,16,31,.72)!important;padding:3px 7px!important;border-radius:2px!important}
 '''
 styles_path.write_text(styles,encoding='utf-8')
@@ -70,8 +72,9 @@ pkg_path.write_text(json.dumps(pkg,ensure_ascii=False,indent=2),encoding='utf-8'
 
 if 'id="loginPosterImage"' not in renderer: raise RuntimeError('loginPosterImage missing')
 if "loginPosterUrl?.()" not in renderer: raise RuntimeError('loginPosterUrl renderer binding missing')
+if "functions/v1/hts-config" not in renderer: raise RuntimeError('admin-managed HTS config fetch missing')
 if "app:login-poster-url" not in main or "process.resourcesPath" not in main: raise RuntimeError('login poster main-process URL handler missing')
 if "loginPosterUrl:" not in preload: raise RuntimeError('loginPosterUrl preload bridge missing')
 if {'from':'resources/login-left.jpg','to':'login-left.jpg'} not in pkg['build']['extraResources']: raise RuntimeError('extraResources poster packaging missing')
 if asset_path.read_bytes()!=poster or resource_path.read_bytes()!=poster: raise RuntimeError('poster asset write verification failed')
-print(f'VELTRO {version} exact poster extraResources patch verified: {actual_sha256}')
+print(f'VELTRO {version} admin-managed login poster patch verified: {actual_sha256}')
