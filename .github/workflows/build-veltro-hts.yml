@@ -5,7 +5,6 @@ on:
   push:
     paths:
       - 'desktop/RELEASE'
-      - 'desktop/patch/**'
       - '.github/workflows/build-veltro-hts.yml'
 
 permissions:
@@ -53,10 +52,7 @@ jobs:
           )
 
           try:
-              # v1.0.9-v1.0.12 rebuild scripts reference the old approved login layout
-              # from build-veltro-hts.yml, so temporarily restore that historical file.
               base_workflow_path.write_text(legacy_workflow, encoding='utf-8')
-
               wf_path = root / '.github' / 'workflows' / 'build-veltro-hts-v112.yml'
               wf = wf_path.read_text(encoding='utf-8')
 
