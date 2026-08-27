@@ -5,91 +5,87 @@ on:
   push:
     paths:
       - 'desktop/RELEASE'
-      - 'desktop/branding/**'
-      - '.github/workflows/build-veltro-hts.yml'
 
 permissions:
   contents: write
+
+concurrency:
+  group: veltro-hts-release
+  cancel-in-progress: false
 
 jobs:
   build-windows-installer:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
 
-      - name: Rebuild desktop source
+      - name: Read release version
+        id: version
         shell: pwsh
         run: |
-          if (Test-Path desktop/build) { Remove-Item desktop/build -Recurse -Force }
-          $p0 = Get-Content desktop/v102_parts/part_00 -Raw -Encoding UTF8
-          if ($p0.Length -lt 9000) { throw 'part_00 is too short' }
-          $b64 = $p0.Substring(0,9000)
-          foreach ($i in 1..5) { $b64 += Get-Content ("desktop/v102_parts/part_{0:D2}" -f $i) -Raw -Encoding UTF8 }
-          $b64 += Get-Content desktop/v102_parts/part_06 -Raw -Encoding UTF8
-          $b64 += Get-Content desktop/v102_parts/part_06b -Raw -Encoding UTF8
-          foreach ($i in 7..13) { $b64 += Get-Content ("desktop/v102_parts/part_{0:D2}" -f $i) -Raw -Encoding UTF8 }
-          $b64 += Get-Content desktop/v102_parts/part_14a -Raw -Encoding UTF8
-          $b64 += Get-Content desktop/v102_parts/part_14b -Raw -Encoding UTF8
-          foreach ($i in 15..16) { $b64 += Get-Content ("desktop/v102_parts/part_{0:D2}" -f $i) -Raw -Encoding UTF8 }
-          $b64 = $b64 -replace '\s',''
-          if ($b64.Length -ne 150648) { throw "Unexpected source base64 length: $($b64.Length)" }
-          $bytes = [Convert]::FromBase64String($b64)
-          [IO.File]::WriteAllBytes((Join-Path $PWD 'desktop/source.zip'), $bytes)
-          Expand-Archive -Path desktop/source.zip -DestinationPath desktop/build -Force
-          if (!(Test-Path desktop/build/package.json)) { throw 'package.json missing after extraction' }
+          $v = (Get-Content desktop/RELEASE -Raw -Encoding UTF8).Trim()
+          if ($v -notmatch '^\d+\.\d+\.\d+$') { throw "desktop/RELEASE must contain only x.y.z, got: $v" }
+          "version=$v" >> $env:GITHUB_OUTPUT
+          Write-Host "VELTRO release version: $v"
 
-      - name: Finalize production source
+      - name: Rebuild verified v1.0.12 base
         shell: pwsh
         run: |
-          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-          $logoB64 = (Get-Content (Join-Path $PWD 'desktop/branding/veltro_logo.b64') -Raw -Encoding UTF8) -replace '\s',''
-          [IO.File]::WriteAllBytes((Join-Path $PWD 'desktop/build/assets/veltro_logo.png'), [Convert]::FromBase64String($logoB64))
-          $index = '<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>VELTRO HTS</title><link rel="stylesheet" href="styles.css"></head><body><div id="app"></div><script src="renderer.js"></script></body></html>'
-          [IO.File]::WriteAllText((Join-Path $PWD 'desktop/build/src/index.html'), $index, $utf8NoBom)
-          $rendererPath = Join-Path $PWD 'desktop/build/src/renderer.js'
-          $renderer = Get-Content $rendererPath -Raw -Encoding UTF8
-          $renderer = $renderer -replace "(?m)^\s*'6EU26':.*\r?\n", ''
-          $renderer = $renderer -replace "(?m)^\s*'6BU26':.*\r?\n", ''
-          $renderer = $renderer.Replace("'6BU26':{region:'US',code:'6B'}, '6EU26':{region:'US',code:'6E'}, '6JU26':{region:'US',code:'6J'}, HSIQ26:{region:'HK',code:'HSI'}", "'6JU26':{region:'US',code:'6J'}, HSIQ26:{region:'HK',code:'HSI'}")
-          $renderer = $renderer.Replace('cash: 30000000','cash: 0')
-          $renderer = $renderer.Replace('v 1.0.0','v 1.0.5').Replace('v 1.0.1','v 1.0.5').Replace('v 1.0.2','v 1.0.5').Replace('v 1.0.3','v 1.0.5').Replace('v 1.0.4','v 1.0.5')
-          $loginHtml = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('PGRpdiBjbGFzcz0ibG9naW4tYXJ0IHZlbHRyby1sb2dpbi1hcnQiPgogIDxkaXYgY2xhc3M9Im1hcmtldC1ncmlkIj48L2Rpdj48ZGl2IGNsYXNzPSJtYXJrZXQtbWFwIj48L2Rpdj4KICA8ZGl2IGNsYXNzPSJtYXJrZXQtY2hhcnQiPjxpPjwvaT48aT48L2k+PGk+PC9pPjxpPjwvaT48aT48L2k+PGk+PC9pPjxpPjwvaT48aT48L2k+PGk+PC9pPjxpPjwvaT48L2Rpdj4KICA8ZGl2IGNsYXNzPSJsb2dpbi12aXN1YWwtY29weSI+PGRpdiBjbGFzcz0idmlzdWFsLXRpdGxlIj5WRUxUUk88L2Rpdj48ZGl2IGNsYXNzPSJ2aXN1YWwtc3VidGl0bGUiPkFEVkFOQ0VEIEZVVFVSRVMgVFJBRElORyBQTEFURk9STTwvZGl2PjxkaXYgY2xhc3M9InZpc3VhbC10YWdsaW5lIj5HbG9iYWwgTWFya2V0cy4gSW5maW5pdGUgT3Bwb3J0dW5pdGllcy48L2Rpdj48L2Rpdj4KICA8ZGl2IGNsYXNzPSJoZXJvLWxvZ28tYm94Ij48aW1nIHNyYz0iLi4vYXNzZXRzL3ZlbHRyb19sb2dvLnBuZyIgYWx0PSJWRUxUUk8iPjwvZGl2PgogIDxkaXYgY2xhc3M9ImZlYXR1cmUtc3RyaXAiPjxkaXY+PGI+4peOPC9iPjxzdHJvbmc+R0xPQkFMIEFDQ0VTUzwvc3Ryb25nPjxzcGFuPlRyYWRlIGdsb2JhbCBmdXR1cmVzPGJyPm1hcmtldHMgMjQvNTwvc3Bhbj48L2Rpdj48ZGl2PjxiPs+fPC9iPjxzdHJvbmc+UkVBTC1USU1FIERBVEE8L3N0cm9uZz48c3Bhbj5VbHRyYS1mYXN0IG1hcmtldCBkYXRhPGJyPmFuZCBleGVjdXRpb248L3NwYW4+PC9kaXY+PGRpdj48Yj7imaI8L2I+PHN0cm9uZz5TRUNVUkUgJmFtcDsgUkVMSUFCTEU8L3N0cm9uZz48c3Bhbj5FbnRlcnByaXNlLWdyYWRlIHNlY3VyaXR5PGJyPmFuZCBzdGFiaWxpdHk8L3NwYW4+PC9kaXY+PGRpdj48Yj7ilqU8L2I+PHN0cm9uZz5BRFZBTkNFRCBBTkFMWVRJQ1M8L3N0cm9uZz48c3Bhbj5Qb3dlcmZ1bCB0b29scyBmb3I8YnI+c21hcnRlciBkZWNpc2lvbnM8L3NwYW4+PC9kaXY+PC9kaXY+CiAgPGRpdiBjbGFzcz0idmVyc2lvbiIgaWQ9InZlcnNpb24iPnYgMS4wLjU8L2Rpdj4KPC9kaXY+CjxkaXYgY2xhc3M9ImxvZ2luLXNpZGUiPgogIDxidXR0b24gY2xhc3M9ImNsb3NlLWJ0biIgaWQ9InF1aXQiPsOXPC9idXR0b24+CiAgPGRpdiBjbGFzcz0ibG9naW4tY2FyZCB2ZWx0cm8tcmVmLWNhcmQiPgogICAgPGRpdiBjbGFzcz0iYnJhbmQgdmVsdHJvLWJyYW5kIj48ZGl2IGNsYXNzPSJ2ZWx0cm8td29yZG1hcmsiPlZFTFRSTzwvZGl2PjxkaXYgY2xhc3M9InZlbHRyby1zdWIiPkZVVFVSRVMgVFJBRElORyBTWVNURU08L2Rpdj48L2Rpdj4KICAgIDxkaXYgY2xhc3M9ImZpZWxkIHZlbHRyby1maWVsZCI+PHNwYW4gY2xhc3M9ImZpZWxkLWljb24gdXNlci1pY29uIj48L3NwYW4+PGlucHV0IGlkPSJ1c2VyaWQiIHBsYWNlaG9sZGVyPSLslYTsnbTrlJQiPjwvZGl2PgogICAgPGRpdiBjbGFzcz0iZmllbGQgdmVsdHJvLWZpZWxkIj48c3BhbiBjbGFzcz0iZmllbGQtaWNvbiBsb2NrLWljb24iPjwvc3Bhbj48aW5wdXQgaWQ9InBhc3N3b3JkIiB0eXBlPSJwYXNzd29yZCIgcGxhY2Vob2xkZXI9Iuu5hOuwgOuyiO2YuCI+PC9kaXY+CiAgICA8bGFiZWwgY2xhc3M9InJlbWVtYmVyIHZlbHRyby1yZW1lbWJlciI+PGlucHV0IHR5cGU9ImNoZWNrYm94IiBpZD0icmVtZW1iZXIiPjxzcGFuPuyVhOydtOuUlCDsoIDsnqU8L3NwYW4+PC9sYWJlbD4KICAgIDxidXR0b24gY2xhc3M9ImxvZ2luLXByaW1hcnkiIGlkPSJsb2dpbkJ0biI+66Gc6re47J24PC9idXR0b24+PGJ1dHRvbiBjbGFzcz0ibG9naW4tc2Vjb25kYXJ5IiBpZD0iam9pbkJ0biI+7ZqM7JuQ6rCA7J6F7ZWY6riwPC9idXR0b24+PGRpdiBjbGFzcz0ibG9naW4tZXJyb3IiIGlkPSJsb2dpbkVycm9yIj48L2Rpdj4KICA8L2Rpdj4KPC9kaXY+'))
-          $pattern = '(?s)<div class="login-art veltro-login-art">.*?<div class="login-error" id="loginError"></div>\s*</div>\s*</div>'
-          $renderer2 = [regex]::Replace($renderer,$pattern,[System.Text.RegularExpressions.MatchEvaluator]{param($m) $loginHtml},1)
-          if ($renderer2 -eq $renderer) { throw 'Login markup replacement failed' }
-          [IO.File]::WriteAllText($rendererPath,$renderer2,$utf8NoBom)
-          $css = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('Ci8qIFZFTFRSTyByZWZlcmVuY2UgbG9naW4gdjEuMC41ICovCi5sb2dpbi1zaGVsbHtoZWlnaHQ6MTAwdmg7ZGlzcGxheTpncmlkO2dyaWQtdGVtcGxhdGUtY29sdW1uczo1MyUgNDclO2JhY2tncm91bmQ6IzA2MTExZjtvdmVyZmxvdzpoaWRkZW47Zm9udC1mYW1pbHk6Ik1hbGd1biBHb3RoaWMiLCJTZWdvZSBVSSIsQXJpYWwsc2Fucy1zZXJpZn0KLnZlbHRyby1sb2dpbi1hcnR7cG9zaXRpb246cmVsYXRpdmU7ZGlzcGxheTpibG9jaztvdmVyZmxvdzpoaWRkZW47YmFja2dyb3VuZDpyYWRpYWwtZ3JhZGllbnQoY2lyY2xlIGF0IDUxJSA1NyUscmdiYSgxMCw5NiwxODAsLjU1KSx0cmFuc3BhcmVudCAzMSUpLHJhZGlhbC1ncmFkaWVudChjaXJjbGUgYXQgMTIlIDE2JSxyZ2JhKDYsNzMsMTM3LC4zNiksdHJhbnNwYXJlbnQgMjglKSxsaW5lYXItZ3JhZGllbnQoMTQ1ZGVnLCMwNDEwMWQgMCUsIzA2MTkyZCA0OCUsIzA3MTUyOCAxMDAlKX0KLnZlbHRyby1sb2dpbi1hcnQ6YmVmb3Jle2Rpc3BsYXk6YmxvY2s7Y29udGVudDoiIjtwb3NpdGlvbjphYnNvbHV0ZTtpbnNldDowO2JhY2tncm91bmQ6cmVwZWF0aW5nLWxpbmVhci1ncmFkaWVudCgwZGVnLHJnYmEoMzksMTIyLDIwNiwuMDU1KSAwIDFweCx0cmFuc3BhcmVudCAxcHggMzhweCkscmVwZWF0aW5nLWxpbmVhci1ncmFkaWVudCg5MGRlZyxyZ2JhKDM5LDEyMiwyMDYsLjA0NSkgMCAxcHgsdHJhbnNwYXJlbnQgMXB4IDQ4cHgpO29wYWNpdHk6Ljd9Ci52ZWx0cm8tbG9naW4tYXJ0OmFmdGVye2NvbnRlbnQ6IiI7cG9zaXRpb246YWJzb2x1dGU7bGVmdDotNCU7cmlnaHQ6LTIlO2JvdHRvbToxMiU7aGVpZ2h0OjM2JTtib3JkZXItcmFkaXVzOjUwJTtib3JkZXItdG9wOjJweCBzb2xpZCByZ2JhKDQ1LDE1MSwyNTUsLjU1KTtib3gtc2hhZG93OjAgLThweCAyMnB4IHJnYmEoMjAsMTMwLDI1NSwuMTQpLDAgLTMycHggNjBweCByZ2JhKDE1LDgwLDE1MCwuMDgpO3RyYW5zZm9ybTpza2V3WSgtNGRlZyl9Ci5tYXJrZXQtZ3JpZHtwb3NpdGlvbjphYnNvbHV0ZTtpbnNldDowO2JhY2tncm91bmQ6bGluZWFyLWdyYWRpZW50KDExMGRlZyx0cmFuc3BhcmVudCAwIDM1JSxyZ2JhKDIyLDEwNywyMDYsLjA4KSAzNSUgMzYlLHRyYW5zcGFyZW50IDM2JSAxMDAlKSxsaW5lYXItZ3JhZGllbnQoMThkZWcsdHJhbnNwYXJlbnQgMCA2MCUscmdiYSg0MCwxMzksMjM5LC4wOCkgNjAlIDYxJSx0cmFuc3BhcmVudCA2MSUpO29wYWNpdHk6Ljh9Ci5tYXJrZXQtbWFwe3Bvc2l0aW9uOmFic29sdXRlO2xlZnQ6LTQlO3RvcDo2JTt3aWR0aDo0NSU7aGVpZ2h0OjM2JTtvcGFjaXR5Oi4yODtiYWNrZ3JvdW5kLWltYWdlOnJhZGlhbC1ncmFkaWVudChjaXJjbGUsIzFlN2RkMyAxLjZweCx0cmFuc3BhcmVudCAxLjhweCk7YmFja2dyb3VuZC1zaXplOjhweCA4cHg7Y2xpcC1wYXRoOnBvbHlnb24oMCA4JSwxMCUgNCUsMjAlIDE1JSwyOSUgOCUsNDMlIDIwJSw1MyUgMTMlLDY3JSAyOCUsNzclIDE4JSw5MiUgMzElLDg0JSA0OSUsNzIlIDU1JSw2NiUgNzYlLDQ4JSA2NyUsMzclIDg2JSwyMiUgNzYlLDExJSA2MCUsMCA1NCUpfQoubG9naW4tdmlzdWFsLWNvcHl7cG9zaXRpb246YWJzb2x1dGU7dG9wOjEzJTtsZWZ0OjA7cmlnaHQ6MDt0ZXh0LWFsaWduOmNlbnRlcjt6LWluZGV4OjM7Y29sb3I6d2hpdGU7dGV4dC1zaGFkb3c6MCAycHggMThweCByZ2JhKDAsMCwwLC4zOCl9Ci52aXN1YWwtdGl0bGV7Zm9udC1zaXplOjU0cHg7bGluZS1oZWlnaHQ6MTtmb250LXdlaWdodDo3MDA7bGV0dGVyLXNwYWNpbmc6MTFweDtiYWNrZ3JvdW5kOmxpbmVhci1ncmFkaWVudCgjZmZmLCNhYWI3YzcgNzAlLCNmN2Y4ZmEpOy13ZWJraXQtYmFja2dyb3VuZC1jbGlwOnRleHQ7YmFja2dyb3VuZC1jbGlwOnRleHQ7Y29sb3I6dHJhbnNwYXJlbnR9Ci52aXN1YWwtc3VidGl0bGV7bWFyZ2luLXRvcDoxN3B4O2ZvbnQtc2l6ZToxNXB4O2xldHRlci1zcGFjaW5nOjEuM3B4O2NvbG9yOiM3MGI5ZjI7Zm9udC13ZWlnaHQ6NjAwfS52aXN1YWwtdGFnbGluZXttYXJnaW4tdG9wOjE3cHg7Zm9udC1zaXplOjEycHg7Y29sb3I6I2Q4ZTJlZX0KLmhlcm8tbG9nby1ib3h7cG9zaXRpb246YWJzb2x1dGU7ei1pbmRleDo0O3dpZHRoOjI4NXB4O2hlaWdodDoyODVweDtsZWZ0OjUwJTt0b3A6NDklO3RyYW5zZm9ybTp0cmFuc2xhdGUoLTUwJSwtNTAlKTtib3JkZXItcmFkaXVzOjU1cHg7ZGlzcGxheTpmbGV4O2FsaWduLWl0ZW1zOmNlbnRlcjtqdXN0aWZ5LWNvbnRlbnQ6Y2VudGVyO2JhY2tncm91bmQ6bGluZWFyLWdyYWRpZW50KDE0NWRlZywjMTkzZTc0LCMwNzE2MmEgNzIlKTtib3JkZXI6MnB4IHNvbGlkICMzMDc4YzQ7Ym94LXNoYWRvdzowIDAgMCA2cHggcmdiYSg5LDM1LDY0LC42NSksMCAwIDIycHggIzJmOTRmZiwwIDI4cHggNjVweCByZ2JhKDAsMCwwLC40OCksaW5zZXQgMCAycHggMThweCByZ2JhKDg3LDE2OCwyNTUsLjMpfQouaGVyby1sb2dvLWJveCBpbWd7d2lkdGg6ODYlO2hlaWdodDo4NiU7b2JqZWN0LWZpdDpjb250YWluO2Rpc3BsYXk6YmxvY2s7ZmlsdGVyOmRyb3Atc2hhZG93KDAgNXB4IDEwcHggcmdiYSgwLDAsMCwuMzUpKX0KLm1hcmtldC1jaGFydHtwb3NpdGlvbjphYnNvbHV0ZTt6LWluZGV4OjI7cmlnaHQ6LTIlO3RvcDoyMiU7d2lkdGg6NDMlO2hlaWdodDo0MCU7ZGlzcGxheTpmbGV4O2FsaWduLWl0ZW1zOmZsZXgtZW5kO2dhcDoxMHB4O3RyYW5zZm9ybTpza2V3WSgtN2RlZyk7b3BhY2l0eTouODh9Lm1hcmtldC1jaGFydDphZnRlcntjb250ZW50OiIiO3Bvc2l0aW9uOmFic29sdXRlO2xlZnQ6LTEwJTtyaWdodDowO2JvdHRvbToxNyU7aGVpZ2h0OjJweDtiYWNrZ3JvdW5kOmxpbmVhci1ncmFkaWVudCg5MGRlZyx0cmFuc3BhcmVudCwjMzBhNGZmIDIwJSwjOGVkMGZmIDYwJSx0cmFuc3BhcmVudCk7Ym94LXNoYWRvdzowIDAgOHB4ICMzNmE3ZmY7dHJhbnNmb3JtOnJvdGF0ZSgtMThkZWcpfQoubWFya2V0LWNoYXJ0IGl7ZGlzcGxheTpibG9jazt3aWR0aDoxMXB4O2JhY2tncm91bmQ6bGluZWFyLWdyYWRpZW50KCM5MWQzZmYsIzFjNjliZCk7Ym9yZGVyOjFweCBzb2xpZCByZ2JhKDEzMCwyMDgsMjU1LC41NSk7Ym94LXNoYWRvdzowIDAgOHB4IHJnYmEoNjQsMTU3LDI1NSwuMzQpfS5tYXJrZXQtY2hhcnQgaTpudGgtY2hpbGQoMSl7aGVpZ2h0OjE2JX0ubWFya2V0LWNoYXJ0IGk6bnRoLWNoaWxkKDIpe2hlaWdodDoyNSV9Lm1hcmtldC1jaGFydCBpOm50aC1jaGlsZCgzKXtoZWlnaHQ6MzElfS5tYXJrZXQtY2hhcnQgaTpudGgtY2hpbGQoNCl7aGVpZ2h0OjM4JX0ubWFya2V0LWNoYXJ0IGk6bnRoLWNoaWxkKDUpe2hlaWdodDo0NyV9Lm1hcmtldC1jaGFydCBpOm50aC1jaGlsZCg2KXtoZWlnaHQ6NTglfS5tYXJrZXQtY2hhcnQgaTpudGgtY2hpbGQoNyl7aGVpZ2h0OjY3JX0ubWFya2V0LWNoYXJ0IGk6bnRoLWNoaWxkKDgpe2hlaWdodDo3NiV9Lm1hcmtldC1jaGFydCBpOm50aC1jaGlsZCg5KXtoZWlnaHQ6ODklfS5tYXJrZXQtY2hhcnQgaTpudGgtY2hpbGQoMTApe2hlaWdodDo5OCV9Ci5mZWF0dXJlLXN0cmlwe3Bvc2l0aW9uOmFic29sdXRlO3otaW5kZXg6NTtsZWZ0OjYlO3JpZ2h0OjYlO2JvdHRvbTo3JTtoZWlnaHQ6MTE4cHg7ZGlzcGxheTpncmlkO2dyaWQtdGVtcGxhdGUtY29sdW1uczpyZXBlYXQoNCwxZnIpO2NvbG9yOiM5ZGI3ZDN9LmZlYXR1cmUtc3RyaXA+ZGl2e2Rpc3BsYXk6ZmxleDtmbGV4LWRpcmVjdGlvbjpjb2x1bW47YWxpZ24taXRlbXM6Y2VudGVyO3RleHQtYWxpZ246Y2VudGVyO2p1c3RpZnktY29udGVudDpmbGV4LXN0YXJ0O2JvcmRlci1yaWdodDoxcHggc29saWQgcmdiYSg5MSwxNDMsMTk2LC4yNSk7cGFkZGluZzowIDEwcHh9LmZlYXR1cmUtc3RyaXA+ZGl2Omxhc3QtY2hpbGR7Ym9yZGVyLXJpZ2h0OjB9LmZlYXR1cmUtc3RyaXAgYntmb250LXNpemU6MzFweDtsaW5lLWhlaWdodDozMnB4O2NvbG9yOiM1OGFlZjM7Zm9udC13ZWlnaHQ6NDAwO21hcmdpbi1ib3R0b206OHB4fS5mZWF0dXJlLXN0cmlwIHN0cm9uZ3tmb250LXNpemU6MTBweDtjb2xvcjojNjBiMGYwO2xldHRlci1zcGFjaW5nOi4ycHg7bWFyZ2luLWJvdHRvbTo3cHh9LmZlYXR1cmUtc3RyaXAgc3Bhbntmb250LXNpemU6OXB4O2xpbmUtaGVpZ2h0OjEuNTU7Y29sb3I6IzlhYWVjMn0udmVsdHJvLWxvZ2luLWFydCAudmVyc2lvbntsZWZ0OjE4cHg7Ym90dG9tOjE3cHg7Y29sb3I6I2YzZjVmODtmb250LXNpemU6MTFweDt6LWluZGV4Ojh9Ci5sb2dpbi1zaWRle3Bvc2l0aW9uOnJlbGF0aXZlO2Rpc3BsYXk6ZmxleDthbGlnbi1pdGVtczpjZW50ZXI7anVzdGlmeS1jb250ZW50OmNlbnRlcjtiYWNrZ3JvdW5kOnJhZGlhbC1ncmFkaWVudChjaXJjbGUgYXQgNTIlIDI4JSxyZ2JhKDE1LDQ5LDgwLC4yNiksdHJhbnNwYXJlbnQgMzUlKSxsaW5lYXItZ3JhZGllbnQoMTU1ZGVnLCMwNzFhMmQgMCUsIzA2MTExZiA1OCUsIzA2MTAxZCAxMDAlKTtjb2xvcjojZmZmO2JvcmRlci1sZWZ0OjFweCBzb2xpZCByZ2JhKDkwLDE0NSwxOTcsLjEzKX0KLmNsb3NlLWJ0bntwb3NpdGlvbjphYnNvbHV0ZTtyaWdodDoyNHB4O3RvcDoxMnB4O2JvcmRlcjowO2JhY2tncm91bmQ6dHJhbnNwYXJlbnQ7Y29sb3I6I2YxZjNmNjtmb250LXNpemU6MzhweDtmb250LXdlaWdodDoyMDA7Y3Vyc29yOnBvaW50ZXI7bGluZS1oZWlnaHQ6MTt6LWluZGV4OjV9LnZlbHRyby1yZWYtY2FyZHt3aWR0aDo0NzBweDttYXgtd2lkdGg6NzglO3RyYW5zZm9ybTp0cmFuc2xhdGVZKC0yJSl9LnZlbHRyby1icmFuZHttYXJnaW4tYm90dG9tOjYzcHg7YWxpZ24taXRlbXM6Y2VudGVyfS52ZWx0cm8td29yZG1hcmt7Zm9udC1zaXplOjM3cHg7bGV0dGVyLXNwYWNpbmc6OXB4O2ZvbnQtd2VpZ2h0OjYwMDtjb2xvcjojZjRmNWY2O3RleHQtc2hhZG93OjAgMXB4IDhweCByZ2JhKDI1NSwyNTUsMjU1LC4wOCl9LnZlbHRyby1zdWJ7Zm9udC1zaXplOjEwcHg7bGV0dGVyLXNwYWNpbmc6NHB4O2NvbG9yOiM3ZjkzYTk7bWFyZ2luLXRvcDoxNXB4fQoudmVsdHJvLWZpZWxke2hlaWdodDo2NHB4O2Rpc3BsYXk6ZmxleDthbGlnbi1pdGVtczpjZW50ZXI7Z2FwOjE1cHg7Ym9yZGVyLWJvdHRvbToxcHggc29saWQgcmdiYSgyMjAsMjMwLDI0MCwuNzIpO3BhZGRpbmc6MCA0cHg7bWFyZ2luOjB9LnZlbHRyby1maWVsZCsudmVsdHJvLWZpZWxke21hcmdpbi10b3A6MTZweH0udmVsdHJvLWZpZWxkIGlucHV0e2ZvbnQtZmFtaWx5OiJNYWxndW4gR290aGljIiwiU2Vnb2UgVUkiLHNhbnMtc2VyaWY7Y29sb3I6I2YzZjVmNztmb250LXNpemU6MTZweH0udmVsdHJvLWZpZWxkIGlucHV0OjpwbGFjZWhvbGRlcntjb2xvcjojNzc4NTk2O29wYWNpdHk6MX0uZmllbGQtaWNvbnt3aWR0aDoyMHB4O2hlaWdodDoyMHB4O2Rpc3BsYXk6aW5saW5lLWJsb2NrO3Bvc2l0aW9uOnJlbGF0aXZlO29wYWNpdHk6Ljk1O2ZsZXg6MCAwIDIwcHh9LnVzZXItaWNvbjpiZWZvcmV7Y29udGVudDoiIjtwb3NpdGlvbjphYnNvbHV0ZTt3aWR0aDo3cHg7aGVpZ2h0OjdweDtib3JkZXI6MnB4IHNvbGlkICNmMWYzZjU7Ym9yZGVyLXJhZGl1czo1MCU7bGVmdDo1cHg7dG9wOjB9LnVzZXItaWNvbjphZnRlcntjb250ZW50OiIiO3Bvc2l0aW9uOmFic29sdXRlO3dpZHRoOjEzcHg7aGVpZ2h0OjdweDtib3JkZXI6MnB4IHNvbGlkICNmMWYzZjU7Ym9yZGVyLXRvcDowO2JvcmRlci1yYWRpdXM6MCAwIDhweCA4cHg7bGVmdDoycHg7Ym90dG9tOjFweH0ubG9jay1pY29uOmJlZm9yZXtjb250ZW50OiIiO3Bvc2l0aW9uOmFic29sdXRlO3dpZHRoOjE0cHg7aGVpZ2h0OjEycHg7Ym9yZGVyOjJweCBzb2xpZCAjZjJiYzMyO2JvcmRlci1yYWRpdXM6MnB4O2xlZnQ6MnB4O2JvdHRvbTowfS5sb2NrLWljb246YWZ0ZXJ7Y29udGVudDoiIjtwb3NpdGlvbjphYnNvbHV0ZTt3aWR0aDo4cHg7aGVpZ2h0OjhweDtib3JkZXI6MnB4IHNvbGlkICNmMmJjMzI7Ym9yZGVyLWJvdHRvbTowO2JvcmRlci1yYWRpdXM6OHB4IDhweCAwIDA7bGVmdDo1cHg7dG9wOjB9Ci52ZWx0cm8tcmVtZW1iZXJ7ZGlzcGxheTpmbGV4O2FsaWduLWl0ZW1zOmNlbnRlcjtnYXA6N3B4O21hcmdpbjoyNnB4IDAgMzhweDtjb2xvcjojZDlkZmU1O2ZvbnQtc2l6ZToxNHB4fS52ZWx0cm8tcmVtZW1iZXIgaW5wdXR7d2lkdGg6MTZweDtoZWlnaHQ6MTZweDttYXJnaW46MDthY2NlbnQtY29sb3I6IzJhNmNhOX0ubG9naW4tcHJpbWFyeSwubG9naW4tc2Vjb25kYXJ5e3dpZHRoOjEwMCU7aGVpZ2h0OjYwcHg7Ym9yZGVyLXJhZGl1czozMnB4O2ZvbnQtc2l6ZToxN3B4O2ZvbnQtd2VpZ2h0OjcwMDtjdXJzb3I6cG9pbnRlcjt0cmFuc2l0aW9uOi4xNXN9LmxvZ2luLXByaW1hcnl7Ym9yZGVyOjFweCBzb2xpZCAjMmI2NGEzO2NvbG9yOiNmZmY7YmFja2dyb3VuZDpsaW5lYXItZ3JhZGllbnQoOTBkZWcsIzI0NWE5MyAwJSwjMjI2NWE0IDU4JSwjMjM1NThkIDEwMCUpO2JveC1zaGFkb3c6aW5zZXQgMCAxcHggMCByZ2JhKDI1NSwyNTUsMjU1LC4wOCl9LmxvZ2luLXByaW1hcnk6aG92ZXJ7ZmlsdGVyOmJyaWdodG5lc3MoMS4wNyl9LmxvZ2luLXNlY29uZGFyeXtib3JkZXI6MXB4IHNvbGlkICMzZjdlYjc7Y29sb3I6I2E5YzllODtiYWNrZ3JvdW5kOnJnYmEoNCwxNSwyOCwuMjIpO21hcmdpbi10b3A6MThweH0ubG9naW4tc2Vjb25kYXJ5OmhvdmVye2JhY2tncm91bmQ6cmdiYSgzMSw4MywxMzAsLjE0KX0ubG9naW4tZXJyb3J7aGVpZ2h0OjI0cHg7Y29sb3I6I2ZmODc5NDtmb250LXNpemU6MTNweDttYXJnaW4tdG9wOjEwcHg7dGV4dC1hbGlnbjpjZW50ZXJ9Cg=='))
-          Add-Content -Path (Join-Path $PWD 'desktop/build/src/styles.css') -Value $css -Encoding UTF8
-          $mainPath = Join-Path $PWD 'desktop/build/src/main.js'
-          $main = (Get-Content $mainPath -Raw -Encoding UTF8).Replace('cash: 30000000','cash: 0')
-          [IO.File]::WriteAllText($mainPath,$main,$utf8NoBom)
-          $pkgPath = Join-Path $PWD 'desktop/build/package.json'
-          $pkg = Get-Content $pkgPath -Raw -Encoding UTF8 | ConvertFrom-Json
-          $pkg.version = '1.0.5'
-          $pkg.scripts | Add-Member -NotePropertyName 'release:win' -NotePropertyValue 'electron-builder --win nsis --publish never' -Force
-          if (-not $pkg.dependencies) { $pkg | Add-Member -NotePropertyName dependencies -NotePropertyValue ([pscustomobject]@{}) }
-          $pkg.dependencies | Add-Member -NotePropertyName 'electron-updater' -NotePropertyValue '^6.6.2' -Force
-          $pkg.build.files = @('src/**/*','assets/**/*','package.json')
-          $pkg.build.win.icon = 'assets/veltro_logo.png'
-          $pkg.build.nsis.artifactName = 'VELTRO_HTS_Setup.${ext}'
-          [IO.File]::WriteAllText($pkgPath,($pkg | ConvertTo-Json -Depth 20),$utf8NoBom)
+          @'
+          import pathlib, re, subprocess, sys, textwrap
+
+          root = pathlib.Path.cwd()
+          wf_path = root / '.github' / 'workflows' / 'build-veltro-hts-v112.yml'
+          wf = wf_path.read_text(encoding='utf-8')
+
+          m1 = re.search(
+              r"- name: Rebuild v1\.0\.11 source exactly.*?run: \|\s*@'\s*\n(.*?)\n\s*'@ \| Set-Content -Path extract_v111\.py",
+              wf,
+              re.S,
+          )
+          if not m1:
+              raise RuntimeError('Could not extract the verified v1.0.11 rebuild bootstrap')
+          bootstrap = textwrap.dedent(m1.group(1))
+          exec(compile(bootstrap, 'extract_v111.py', 'exec'), {'__name__': '__main__'})
+          subprocess.run([sys.executable, 'make_v111.py'], check=True)
+          subprocess.run([sys.executable, 'patch_v111.py'], check=True)
+
+          m2 = re.search(
+              r"- name: Apply v1\.0\.12 login-poster-only runtime fix.*?run: \|\s*@'\s*\n(.*?)\n\s*'@ \| Set-Content -Path patch_v112\.py",
+              wf,
+              re.S,
+          )
+          if not m2:
+              raise RuntimeError('Could not extract the verified v1.0.12 patch')
+          patch112 = textwrap.dedent(m2.group(1))
+          exec(compile(patch112, 'patch_v112.py', 'exec'), {'__name__': '__main__'})
+
+          if not (root / 'desktop' / 'build' / 'package.json').exists():
+              raise RuntimeError('v1.0.12 base rebuild did not produce desktop/build')
+          print('Verified v1.0.12 base reconstructed')
+          '@ | Set-Content -Path rebuild_verified_base.py -Encoding UTF8
+          python rebuild_verified_base.py
+
+      - name: Apply current VELTRO patch
+        shell: pwsh
+        env:
+          VELTRO_VERSION: ${{ steps.version.outputs.version }}
+        run: python desktop/patch/current.py
 
       - name: Install dependencies
         working-directory: desktop/build
         run: npm install --no-audit --no-fund
 
-      - name: Validate sources
-        shell: pwsh
+      - name: Validate JavaScript
         working-directory: desktop/build
         run: |
           node --check src/main.js
           node --check src/preload.js
           node --check src/renderer.js
-          if (!(Test-Path src/index.html)) { throw 'src/index.html missing' }
-          if (!(Test-Path assets/veltro_logo.png)) { throw 'VELTRO logo missing' }
 
       - name: Build NSIS installer
         working-directory: desktop/build
@@ -97,41 +93,26 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: npm run release:win
 
-      - name: Read version
-        id: version
-        shell: pwsh
-        run: |
-          $v = node -p "require('./desktop/build/package.json').version"
-          "version=$v" >> $env:GITHUB_OUTPUT
-          "tag=v$v" >> $env:GITHUB_OUTPUT
-
-      - name: Replace release if rebuilding same version
+      - name: Publish auto-update release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
+          TAG="v${VERSION}"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release delete "$TAG" --cleanup-tag --yes
           fi
-
-      - name: Publish installer release
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.version.outputs.tag }}
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
           gh release create "$TAG" \
             desktop/build/dist/VELTRO_HTS_Setup.exe \
             desktop/build/dist/VELTRO_HTS_Setup.exe.blockmap \
             desktop/build/dist/latest.yml \
             --target main \
             --latest \
-            --title "VELTRO HTS v$VERSION" \
-            --notes "VELTRO HTS login screen design update only. Existing HTS functions and data integration preserved."
+            --title "VELTRO HTS v${VERSION}" \
+            --notes "VELTRO HTS automatic patch release. Built from the verified v1.0.12 base plus desktop/patch/current.py. Existing trading, market-data, account, DB, member, balance, order, position, deposit/withdrawal, notification, and updater behavior is preserved unless explicitly patched."
 
-      - name: Upload build artifact
+      - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
           name: VELTRO-HTS-Setup-${{ steps.version.outputs.version }}
