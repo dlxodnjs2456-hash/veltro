@@ -1,0 +1,110 @@
+name: Build VELTRO HTS v1.0.10 inline poster data fix
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/build-veltro-hts-v110.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Rebuild source and apply v1.0.10 poster data fix
+        shell: pwsh
+        run: |
+          @'
+          import pathlib, re, textwrap
+
+          root = pathlib.Path.cwd()
+          wf = (root / '.github' / 'workflows' / 'build-veltro-hts-v109.yml').read_text(encoding='utf-8')
+          m = re.search(r"@'\s*\n(.*?)\n\s*'@ \| Set-Content -Path patch_v109\.py", wf, re.S)
+          if not m:
+              raise RuntimeError('Could not extract v1.0.9 patch script')
+
+          script = textwrap.dedent(m.group(1))
+          script = script.replace("'1.0.9'", "'1.0.10'")
+          script = script.replace('v 1.0.9', 'v 1.0.10')
+          script = script.replace('v1.0.9', 'v1.0.10')
+          script = script.replace('source-v109.zip', 'source-v110.zip')
+          script = script.replace('login_left_v109.jpg', 'login_left_v110.jpg')
+
+          old_handler = "asset_handler = \"ipcMain.handle('app:asset-url',(_e,fileName)=>{const safeName=path.basename(String(fileName||''));const fullPath=path.join(__dirname,'..','assets',safeName);return pathToFileURL(fullPath).toString();});\""
+          new_handler = "asset_handler = \"ipcMain.handle('app:asset-url',(_e,fileName)=>{const safeName=path.basename(String(fileName||''));const fullPath=path.join(__dirname,'..','assets',safeName);const ext=path.extname(safeName).toLowerCase();const mime=ext==='.png'?'image/png':'image/jpeg';const buf=fs.readFileSync(fullPath);return `data:${mime};base64,${buf.toString('base64')}`;});\""
+          if old_handler not in script:
+              raise RuntimeError('v1.0.9 asset handler template not found')
+          script = script.replace(old_handler, new_handler)
+
+          # v1.0.10 no longer needs pathToFileURL; remove its insertion and update validation.
+          script = script.replace("          if \"const { pathToFileURL } = require('url');\" not in main:\n              main = main.replace(\"const path = require('path');\", \"const path = require('path');\\nconst { pathToFileURL } = require('url');\", 1)\n", "")
+          script = script.replace("if \"app:asset-url\" not in final_main or \"pathToFileURL\" not in final_main: raise RuntimeError('main asset URL handler is missing')", "if \"app:asset-url\" not in final_main or \"readFileSync(fullPath)\" not in final_main: raise RuntimeError('main asset data handler is missing')")
+
+          # Add a hard check that renderer requests the v1.0.10 packaged poster.
+          script += "\nfinal_renderer = renderer_path.read_text(encoding='utf-8')\n"
+          script += "final_main = main_path.read_text(encoding='utf-8')\n"
+          script += "if \"assetUrl?.('login_left_v110.jpg')\" not in final_renderer:\n    raise RuntimeError('v1.0.10 renderer poster request missing')\n"
+          script += "if \"data:${mime};base64\" not in final_main:\n    raise RuntimeError('v1.0.10 data URI handler missing')\n"
+          script += "print('v1.0.10 runtime data URI poster fix verified')\n"
+
+          (root / 'patch_v110.py').write_text(script, encoding='utf-8')
+          '@ | Set-Content -Path make_v110.py -Encoding UTF8
+          python make_v110.py
+          python patch_v110.py
+
+      - name: Install dependencies
+        working-directory: desktop/build
+        run: npm install --no-audit --no-fund
+
+      - name: Validate JavaScript
+        working-directory: desktop/build
+        run: |
+          node --check src/main.js
+          node --check src/preload.js
+          node --check src/renderer.js
+
+      - name: Build NSIS installer
+        working-directory: desktop/build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: npm run release:win
+
+      - name: Replace v1.0.10 release if necessary
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view v1.0.10 >/dev/null 2>&1; then
+            gh release delete v1.0.10 --cleanup-tag --yes
+          fi
+
+      - name: Publish v1.0.10 auto-update release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create v1.0.10 \
+            desktop/build/dist/VELTRO_HTS_Setup.exe \
+            desktop/build/dist/VELTRO_HTS_Setup.exe.blockmap \
+            desktop/build/dist/latest.yml \
+            --target main \
+            --latest \
+            --title "VELTRO HTS v1.0.10" \
+            --notes "Login-screen-only hotfix. The left VELTRO poster is now read from the packaged asset by Electron main process and returned to the renderer as a data URI, eliminating packaged file URL loading issues. Existing login icons and all HTS functionality/data are preserved."
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VELTRO-HTS-Setup-1.0.10
+          path: |
+            desktop/build/dist/VELTRO_HTS_Setup.exe
+            desktop/build/dist/VELTRO_HTS_Setup.exe.blockmap
+            desktop/build/dist/latest.yml
