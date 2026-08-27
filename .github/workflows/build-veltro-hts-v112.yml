@@ -1,0 +1,134 @@
+name: Build VELTRO HTS v1.0.12 poster fs import fix
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/build-veltro-hts-v112.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Rebuild v1.0.11 source exactly
+        shell: pwsh
+        run: |
+          @'
+          import pathlib, re, textwrap
+          root = pathlib.Path.cwd()
+          wf = (root / '.github' / 'workflows' / 'build-veltro-hts-v111.yml').read_text(encoding='utf-8')
+          m = re.search(r"@'\s*\n(.*?)\n\s*'@ \| Set-Content -Path make_v111\.py", wf, re.S)
+          if not m:
+              raise RuntimeError('Could not extract v1.0.11 rebuild script')
+          (root / 'make_v111.py').write_text(textwrap.dedent(m.group(1)), encoding='utf-8')
+          '@ | Set-Content -Path extract_v111.py -Encoding UTF8
+          python extract_v111.py
+          python make_v111.py
+          python patch_v111.py
+
+      - name: Apply v1.0.12 login-poster-only runtime fix
+        shell: pwsh
+        run: |
+          @'
+          import json, pathlib
+          build = pathlib.Path('desktop/build')
+          main_path = build / 'src' / 'main.js'
+          renderer_path = build / 'src' / 'renderer.js'
+          pkg_path = build / 'package.json'
+
+          main = main_path.read_text(encoding='utf-8')
+          if "fs.readFileSync(fullPath)" not in main:
+              raise RuntimeError('Expected poster data handler is missing')
+          if "const fs = require('fs');" not in main:
+              anchor = "const path = require('path');"
+              if anchor not in main:
+                  raise RuntimeError('Could not find path require anchor')
+              main = main.replace(anchor, anchor + "\nconst fs = require('fs');", 1)
+          main_path.write_text(main, encoding='utf-8')
+
+          renderer = renderer_path.read_text(encoding='utf-8')
+          renderer = renderer.replace("login_left_v111.jpg", "login_left_v112.jpg")
+          renderer = renderer.replace("v 1.0.11", "v 1.0.12")
+          renderer_path.write_text(renderer, encoding='utf-8')
+
+          src_asset = build / 'assets' / 'login_left_v111.jpg'
+          dst_asset = build / 'assets' / 'login_left_v112.jpg'
+          if not src_asset.exists():
+              raise RuntimeError('v1.0.11 poster asset is missing')
+          dst_asset.write_bytes(src_asset.read_bytes())
+
+          pkg = json.loads(pkg_path.read_text(encoding='utf-8-sig'))
+          pkg['version'] = '1.0.12'
+          pkg_path.write_text(json.dumps(pkg, ensure_ascii=False, indent=2), encoding='utf-8')
+
+          final_main = main_path.read_text(encoding='utf-8')
+          final_renderer = renderer_path.read_text(encoding='utf-8')
+          if "const fs = require('fs');" not in final_main:
+              raise RuntimeError('fs import fix missing')
+          if "fs.readFileSync(fullPath)" not in final_main:
+              raise RuntimeError('poster file read handler missing')
+          if "assetUrl?.('login_left_v112.jpg')" not in final_renderer:
+              raise RuntimeError('v1.0.12 poster request missing')
+          if not dst_asset.exists() or dst_asset.stat().st_size < 15000:
+              raise RuntimeError('v1.0.12 poster asset missing')
+          print('v1.0.12 fs import poster fix verified')
+          '@ | Set-Content -Path patch_v112.py -Encoding UTF8
+          python patch_v112.py
+
+      - name: Install dependencies
+        working-directory: desktop/build
+        run: npm install --no-audit --no-fund
+
+      - name: Validate JavaScript
+        working-directory: desktop/build
+        run: |
+          node --check src/main.js
+          node --check src/preload.js
+          node --check src/renderer.js
+
+      - name: Build NSIS installer
+        working-directory: desktop/build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: npm run release:win
+
+      - name: Replace v1.0.12 release if necessary
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view v1.0.12 >/dev/null 2>&1; then
+            gh release delete v1.0.12 --cleanup-tag --yes
+          fi
+
+      - name: Publish v1.0.12 auto-update release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create v1.0.12 \
+            desktop/build/dist/VELTRO_HTS_Setup.exe \
+            desktop/build/dist/VELTRO_HTS_Setup.exe.blockmap \
+            desktop/build/dist/latest.yml \
+            --target main \
+            --latest \
+            --title "VELTRO HTS v1.0.12" \
+            --notes "Login-screen-only hotfix. Fixes the missing fs module import that caused the packaged left poster data-URI loader to throw at runtime. No trading, market-data, account, DB, member, balance, order, position, deposit/withdrawal, notification, or updater behavior is otherwise changed."
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VELTRO-HTS-Setup-1.0.12
+          path: |
+            desktop/build/dist/VELTRO_HTS_Setup.exe
+            desktop/build/dist/VELTRO_HTS_Setup.exe.blockmap
+            desktop/build/dist/latest.yml
