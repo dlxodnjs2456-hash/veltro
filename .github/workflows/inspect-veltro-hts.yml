@@ -1,0 +1,40 @@
+name: Inspect VELTRO HTS branding
+
+on:
+  push:
+    paths:
+      - '.github/workflows/inspect-veltro-hts.yml'
+  workflow_dispatch:
+
+jobs:
+  inspect:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rebuild desktop source
+        shell: pwsh
+        run: |
+          $p0 = Get-Content desktop/v102_parts/part_00 -Raw -Encoding UTF8
+          $b64 = $p0.Substring(0,9000)
+          foreach ($i in 1..5) { $b64 += Get-Content ("desktop/v102_parts/part_{0:D2}" -f $i) -Raw -Encoding UTF8 }
+          $b64 += Get-Content desktop/v102_parts/part_06 -Raw -Encoding UTF8
+          $b64 += Get-Content desktop/v102_parts/part_06b -Raw -Encoding UTF8
+          foreach ($i in 7..13) { $b64 += Get-Content ("desktop/v102_parts/part_{0:D2}" -f $i) -Raw -Encoding UTF8 }
+          $b64 += Get-Content desktop/v102_parts/part_14a -Raw -Encoding UTF8
+          $b64 += Get-Content desktop/v102_parts/part_14b -Raw -Encoding UTF8
+          foreach ($i in 15..16) { $b64 += Get-Content ("desktop/v102_parts/part_{0:D2}" -f $i) -Raw -Encoding UTF8 }
+          $b64 = $b64 -replace '\s',''
+          $bytes = [Convert]::FromBase64String($b64)
+          [IO.File]::WriteAllBytes((Join-Path $PWD 'desktop/source-inspect.zip'), $bytes)
+          Expand-Archive -Path desktop/source-inspect.zip -DestinationPath desktop/inspect -Force
+      - name: Inspect branding references
+        shell: pwsh
+        run: |
+          Write-Host '--- ASSETS ---'
+          Get-ChildItem desktop/inspect/assets -Recurse | Select-Object FullName,Length
+          Write-Host '--- PACKAGE BUILD ---'
+          Get-Content desktop/inspect/package.json -Raw -Encoding UTF8
+          Write-Host '--- LOGO REFERENCES ---'
+          Get-ChildItem desktop/inspect/src -File | ForEach-Object {
+            Select-String -Path $_.FullName -Pattern 'logo|veltro_logo|brand|login|auth|splash' -Encoding UTF8 -Context 2,2
+          }
