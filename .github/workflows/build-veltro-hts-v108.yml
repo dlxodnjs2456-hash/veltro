@@ -1,0 +1,114 @@
+name: Build VELTRO HTS v1.0.8 embedded login poster fix
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/build-veltro-hts-v108.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Rebuild source and embed login poster directly
+        shell: pwsh
+        run: |
+          @'
+          import pathlib, re
+
+          root = pathlib.Path.cwd()
+          workflow = (root / '.github' / 'workflows' / 'build-veltro-hts-v107.yml').read_text(encoding='utf-8')
+          m = re.search(r"@'\s*\n(.*?)\n\s*'@ \| Set-Content -Path patch_v107\.py", workflow, re.S)
+          if not m:
+              raise RuntimeError('Could not extract v1.0.7 build patch script')
+
+          script = m.group(1)
+          script = script.replace("'1.0.7'", "'1.0.8'")
+          script = script.replace('v 1.0.7', 'v 1.0.8')
+          script = script.replace('v1.0.7', 'v1.0.8')
+          script = script.replace('source-v107.zip', 'source-v108.zip')
+          script = script.replace(
+              "left_html = '''<div class=\"login-art veltro-login-art exact-poster-art\">",
+              "left_html = f'''<div class=\"login-art veltro-login-art exact-poster-art\">"
+          )
+          script = script.replace(
+              '<img src="../assets/login_left_v107.jpg" class="exact-poster-img" alt="VELTRO">',
+              '<img src="data:image/jpeg;base64,{poster_b64}" class="exact-poster-img" alt="VELTRO">'
+          )
+          script = script.replace(
+              "if 'login_left_v107.jpg' not in final_renderer:\n    raise RuntimeError('v1.0.8 left poster is missing from login markup')",
+              "if 'data:image/jpeg;base64,' not in final_renderer:\n    raise RuntimeError('v1.0.8 embedded left poster is missing from login markup')"
+          )
+          script = script.replace(
+              "if 'login_left_v107.jpg' not in final_renderer:\n              raise RuntimeError('v1.0.8 left poster is missing from login markup')",
+              "if 'data:image/jpeg;base64,' not in final_renderer:\n              raise RuntimeError('v1.0.8 embedded left poster is missing from login markup')"
+          )
+
+          # Extra hard assertion: renderer must contain the embedded data URI, not a relative file path.
+          script += "\nfinal_renderer = renderer_path.read_text(encoding='utf-8')\n"
+          script += "if 'data:image/jpeg;base64,' not in final_renderer:\n    raise RuntimeError('embedded poster data URI not found')\n"
+          script += "if '../assets/login_left_v107.jpg' in final_renderer:\n    raise RuntimeError('relative poster path still present')\n"
+          script += "print('v1.0.8 embedded poster path fix verified')\n"
+
+          (root / 'patch_v108.py').write_text(script, encoding='utf-8')
+          '@ | Set-Content -Path make_v108.py -Encoding UTF8
+          python make_v108.py
+          python patch_v108.py
+
+      - name: Install dependencies
+        working-directory: desktop/build
+        run: npm install --no-audit --no-fund
+
+      - name: Validate JavaScript
+        working-directory: desktop/build
+        run: |
+          node --check src/main.js
+          node --check src/preload.js
+          node --check src/renderer.js
+
+      - name: Build NSIS installer
+        working-directory: desktop/build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: npm run release:win
+
+      - name: Replace v1.0.8 release if necessary
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view v1.0.8 >/dev/null 2>&1; then
+            gh release delete v1.0.8 --cleanup-tag --yes
+          fi
+
+      - name: Publish v1.0.8 auto-update release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create v1.0.8 \
+            desktop/build/dist/VELTRO_HTS_Setup.exe \
+            desktop/build/dist/VELTRO_HTS_Setup.exe.blockmap \
+            desktop/build/dist/latest.yml \
+            --target main \
+            --latest \
+            --title "VELTRO HTS v1.0.8" \
+            --notes "Login-screen-only hotfix. The approved left VELTRO poster is embedded directly in the renderer as a data URI so it cannot disappear from a packaged Electron build. Existing person/lock icons and HTS functionality/data are preserved."
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VELTRO-HTS-Setup-1.0.8
+          path: |
+            desktop/build/dist/VELTRO_HTS_Setup.exe
+            desktop/build/dist/VELTRO_HTS_Setup.exe.blockmap
+            desktop/build/dist/latest.yml
