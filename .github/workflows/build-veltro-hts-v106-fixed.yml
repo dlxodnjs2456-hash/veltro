@@ -50,9 +50,15 @@ jobs:
           source_zip = desktop / 'source-v106.zip'
           source_zip.write_bytes(base64.b64decode(b64))
           with zipfile.ZipFile(source_zip) as z:
-              z.extractall(build)
+              for info in z.infolist():
+                  normalized = info.filename.replace('\\', '/').lower()
+                  if normalized == 'assets/veltro_logo.png':
+                      continue
+                  z.extract(info, build)
 
+          # Restore the verified logo after intentionally skipping the damaged archived PNG.
           logo_b64 = re.sub(r'\s+', '', (desktop / 'branding' / 'veltro_logo.b64').read_text(encoding='utf-8'))
+          (build / 'assets').mkdir(parents=True, exist_ok=True)
           (build / 'assets' / 'veltro_logo.png').write_bytes(base64.b64decode(logo_b64))
 
           # Reuse the exact approved v1.0.5 login artwork/layout from the existing build workflow.
@@ -139,7 +145,6 @@ jobs:
           pkg['build']['nsis']['artifactName'] = 'VELTRO_HTS_Setup.${ext}'
           pkg_path.write_text(json.dumps(pkg, ensure_ascii=False, indent=2), encoding='utf-8')
 
-          # Build-time assertion so this cannot publish without the requested symbols.
           final_renderer = renderer_path.read_text(encoding='utf-8')
           if '&#128100;' not in final_renderer:
               raise RuntimeError('Person icon missing')
