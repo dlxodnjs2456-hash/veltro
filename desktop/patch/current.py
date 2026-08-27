@@ -7,7 +7,7 @@ asset_path=build/'assets'/'login_left_current.jpg'; resource_path=build/'resourc
 version=os.environ.get('VELTRO_VERSION','').strip()
 if not re.fullmatch(r'\d+\.\d+\.\d+',version): raise RuntimeError(f'Invalid VELTRO_VERSION: {version!r}')
 
-poster_b64=re.sub(r'\s+','',(root/'desktop'/'patch'/'login_left.b64').read_text(encoding='utf-8'))
+poster_b64=re.sub(r'\s+','',(root/'desktop'/'patch'/'login_left_safe.b64').read_text(encoding='utf-8'))
 poster=base64.b64decode(poster_b64,validate=True)
 expected_sha256='cfb09ef3360604f7681baa38737fa48275d65064693c5ab0cc172c61617ed7e0'
 actual_sha256=hashlib.sha256(poster).hexdigest()
