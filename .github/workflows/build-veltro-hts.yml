@@ -6,6 +6,7 @@ on:
     paths:
       - 'desktop/RELEASE'
       - 'desktop/patch/chart_v20.py'
+      - 'desktop/patch/ls_only_v21.py'
       - '.github/workflows/build-veltro-hts.yml'
 
 permissions:
@@ -73,6 +74,10 @@ jobs:
         shell: pwsh
         run: python desktop/patch/chart_v20.py
 
+      - name: Enforce LS-only chart data
+        shell: pwsh
+        run: python desktop/patch/ls_only_v21.py
+
       - name: Install dependencies
         working-directory: desktop/build
         run: npm install --no-audit --no-fund
@@ -116,7 +121,7 @@ jobs:
             desktop/build/dist/latest.yml \
             --target main --latest \
             --title "VELTRO HTS v${VERSION}" \
-            --notes "VELTRO HTS automatic patch release. Trading chart uses locally packaged Lightweight Charts with LS Securities market data. Existing trading, account, DB, member, balance, order, position, deposit/withdrawal, notification, poster, and updater behavior is preserved unless explicitly patched."
+            --notes "VELTRO HTS automatic patch release. Chart accepts LS Securities original market data only; sample, accumulated and fallback candles are not displayed. Existing trading, account, DB, member, balance, order, position, deposit/withdrawal, notification, poster, and updater behavior is preserved unless explicitly patched."
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
