@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - 'desktop/RELEASE'
+      - 'desktop/patch/chart_v20.py'
       - '.github/workflows/build-veltro-hts.yml'
 
 permissions:
@@ -68,6 +69,10 @@ jobs:
           VELTRO_VERSION: ${{ steps.version.outputs.version }}
         run: python desktop/patch/current.py
 
+      - name: Apply trading-style chart patch
+        shell: pwsh
+        run: python desktop/patch/chart_v20.py
+
       - name: Install dependencies
         working-directory: desktop/build
         run: npm install --no-audit --no-fund
@@ -111,7 +116,7 @@ jobs:
             desktop/build/dist/latest.yml \
             --target main --latest \
             --title "VELTRO HTS v${VERSION}" \
-            --notes "VELTRO HTS automatic patch release. Login poster is packaged as a verified Electron extraResource and loaded through the preload bridge with an in-app fallback. Existing trading, market-data, account, DB, member, balance, order, position, deposit/withdrawal, notification, and updater behavior is preserved unless explicitly patched."
+            --notes "VELTRO HTS automatic patch release. Trading chart uses locally packaged Lightweight Charts with LS Securities market data. Existing trading, account, DB, member, balance, order, position, deposit/withdrawal, notification, poster, and updater behavior is preserved unless explicitly patched."
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
