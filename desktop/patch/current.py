@@ -21,27 +21,28 @@ renderer=re.sub(r"(?m)^\s*window\.desktop\?\.assetUrl\?\.\('login_left_v\d+\.jpg
 renderer=re.sub(r"(?m)^\s*window\.desktop\?\.loginPosterUrl\?\.\(\).*?\.catch\(\(\)=>\{\}\);\s*$",'',renderer)
 renderer=re.sub(r"(?m)^\s*fetch\('https://mzjkvakigwtlibwlslhq\.supabase\.co/functions/v1/hts-config'.*?$",'',renderer)
 renderer=re.sub(r"(?m)^\s*window\.desktop\?\.remoteLoginPoster\?\.\(\).*?$",'',renderer)
+renderer=re.sub(r"(?m)^\s*\(async\(\)=>\{const img=document\.getElementById\('loginPosterImage'\).*?$",'',renderer)
 left_pattern=re.compile(r'<div class="login-art veltro-login-art exact-poster-art" id="loginPoster">\s*(?:<img[^>]+>\s*)?<div class="version" id="version">v [^<]+</div>\s*</div>',re.S)
 left_html=f'''<div class="login-art veltro-login-art exact-poster-art" id="loginPoster">
-            <img class="veltro-login-poster-img" id="loginPosterImage" src="../assets/login_left_current.jpg" alt="VELTRO">
+            <img class="veltro-login-poster-img" id="loginPosterImage" alt="VELTRO">
             <div class="version" id="version">v {version}</div>
           </div>'''
 renderer,n=left_pattern.subn(left_html,renderer,count=1)
 if n!=1: raise RuntimeError('Could not replace login poster panel')
 renderer=re.sub(r'v 1\.0\.\d+',f'v {version}',renderer)
 version_line="window.desktop?.version().then(v => document.getElementById('version').textContent = `v ${v}`);"
-poster_line="window.desktop?.loginPosterUrl?.().then(u => { const img=document.getElementById('loginPosterImage'); if(img&&u) img.src=u; }).catch(()=>{});"
-remote_line="window.desktop?.remoteLoginPoster?.().then(cfg=>{const img=document.getElementById('loginPosterImage');const v=cfg?.login_image_data;if(img&&v&&String(v).startsWith('data:image/')){img.src=v;}}).catch(()=>{});"
+poster_loader="""(async()=>{const img=document.getElementById('loginPosterImage');if(!img)return;try{const cfg=await window.desktop?.remoteLoginPoster?.();const remote=cfg?.login_image_data;if(remote&&String(remote).startsWith('data:image/')){img.src=remote;img.classList.add('ready');return;}}catch{}try{const local=await window.desktop?.loginPosterUrl?.();if(local){img.src=local;img.classList.add('ready');}}catch{}})();"""
 if version_line not in renderer: raise RuntimeError('Could not find version binding')
-renderer=renderer.replace(version_line,version_line+'\n  '+poster_line+'\n  '+remote_line,1)
+renderer=renderer.replace(version_line,version_line+'\n  '+poster_loader,1)
 renderer_path.write_text(renderer,encoding='utf-8')
 
 styles=styles_path.read_text(encoding='utf-8')+r'''
 
-/* Stable packaged login poster v5: main-process remote admin image + local fallback */
+/* Stable packaged login poster v6: remote-first, no fallback flash */
 .exact-poster-art{position:relative!important;overflow:hidden!important;padding:0!important;background:#03101f!important;display:block!important}
 .exact-poster-art::before,.exact-poster-art::after{content:none!important;display:none!important}
-.veltro-login-poster-img{position:absolute!important;inset:0!important;width:100%!important;height:100%!important;display:block!important;object-fit:contain!important;object-position:center center!important;z-index:1!important;opacity:1!important;visibility:visible!important;background:#03101f!important}
+.veltro-login-poster-img{position:absolute!important;inset:0!important;width:100%!important;height:100%!important;display:block!important;object-fit:cover!important;object-position:center center!important;z-index:1!important;opacity:0!important;visibility:hidden!important;background:#03101f!important}
+.veltro-login-poster-img.ready{opacity:1!important;visibility:visible!important}
 .exact-poster-art .version{position:absolute!important;z-index:5!important;left:14px!important;bottom:10px!important;color:#fff!important;background:rgba(3,16,31,.72)!important;padding:3px 7px!important;border-radius:2px!important}
 '''
 styles_path.write_text(styles,encoding='utf-8')
@@ -89,7 +90,8 @@ pkg_path.write_text(json.dumps(pkg,ensure_ascii=False,indent=2),encoding='utf-8'
 
 if 'id="loginPosterImage"' not in renderer: raise RuntimeError('loginPosterImage missing')
 if "remoteLoginPoster?.()" not in renderer: raise RuntimeError('remoteLoginPoster renderer binding missing')
+if 'img.classList.add(\'ready\')' not in renderer: raise RuntimeError('poster ready-state binding missing')
 if "app:remote-login-poster" not in main or "https.get('https://mzjkvakigwtlibwlslhq.supabase.co/functions/v1/hts-config" not in main: raise RuntimeError('main-process remote poster loader missing')
 if "remoteLoginPoster:" not in preload: raise RuntimeError('remoteLoginPoster preload bridge missing')
 if {'from':'resources/login-left.jpg','to':'login-left.jpg'} not in pkg['build']['extraResources']: raise RuntimeError('extraResources poster packaging missing')
-print(f'VELTRO {version} admin-managed login poster main-process bridge verified: {actual_sha256}')
+print(f'VELTRO {version} remote-first login poster no-flash patch verified: {actual_sha256}')
