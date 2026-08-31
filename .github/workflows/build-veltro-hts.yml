@@ -10,6 +10,7 @@ on:
       - 'desktop/patch/databento_chart_v22.py'
       - 'desktop/patch/databento_chart_v23.py'
       - 'desktop/patch/indicators_v24.py'
+      - 'desktop/patch/hsi_ls_v25.py'
       - '.github/workflows/build-veltro-hts.yml'
 
 permissions:
@@ -93,6 +94,10 @@ jobs:
         shell: pwsh
         run: python desktop/patch/indicators_v24.py
 
+      - name: Route HSI chart to LS Securities
+        shell: pwsh
+        run: python desktop/patch/hsi_ls_v25.py
+
       - name: Install dependencies
         working-directory: desktop/build
         run: npm install --no-audit --no-fund
@@ -136,7 +141,7 @@ jobs:
             desktop/build/dist/latest.yml \
             --target main --latest \
             --title "VELTRO HTS v${VERSION}" \
-            --notes "VELTRO HTS technical indicator expansion release. Adds working Bollinger Bands and expands indicators with WMA, VWAP, Parabolic SAR, Ichimoku, RSI, MACD, Stochastic, ATR, CCI, Williams %R, ROC, Momentum, and OBV. The in-chart TradingView attribution logo is disabled while required Lightweight Charts attribution remains in the chart footer. Existing trading, account, DB, member, balance, order, position, deposit/withdrawal, notification, poster, updater, and Databento chart behavior is preserved."
+            --notes "VELTRO HTS hybrid market-data chart release. HSI charts and current price are routed to the newly verified LS Securities overseas-futures API, while NQ/ES/CL/GC/SI/6J historical charts remain on Databento. Existing indicators, trading, account, DB, member, balance, order, position, deposit/withdrawal, notification, poster, updater, and unrelated behavior are preserved."
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
