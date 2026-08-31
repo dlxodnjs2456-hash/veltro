@@ -14,8 +14,8 @@ on:
       - 'desktop/patch/hsi_ref_v26.py'
       - 'desktop/patch/hsi_history_v27.py'
       - 'desktop/patch/hsi_ipc_v28.py'
-      - 'desktop/patch/perf_v29.py'
       - 'desktop/patch/realtime_v30.py'
+      - 'desktop/patch/trade_runtime_v31.py'
       - '.github/workflows/build-veltro-hts.yml'
 
 permissions:
@@ -115,13 +115,13 @@ jobs:
         shell: pwsh
         run: python desktop/patch/hsi_ipc_v28.py
 
-      - name: Apply request and redraw performance optimization
-        shell: pwsh
-        run: python desktop/patch/perf_v29.py
-
       - name: Enable LS OVC realtime chart stream
         shell: pwsh
         run: python desktop/patch/realtime_v30.py
+
+      - name: Stabilize live trading price and PnL runtime
+        shell: pwsh
+        run: python desktop/patch/trade_runtime_v31.py
 
       - name: Install dependencies
         working-directory: desktop/build
@@ -166,7 +166,7 @@ jobs:
             desktop/build/dist/latest.yml \
             --target main --latest \
             --title "VELTRO HTS v${VERSION}" \
-            --notes "VELTRO HTS realtime/performance release. HSI live chart updates now use LS overseas-futures OVC WebSocket ticks instead of 2.5-second REST polling, with automatic reconnect and live candle/volume updates. v1.0.29 request/redraw caching is included. The visible TradingView attribution is removed from the chart footer and the required Lightweight Charts attribution notice/link is moved into the chart gear information panel. Existing trading, account, member, balance, order, position, deposit/withdrawal, notification, poster, updater, Databento historical routing, indicators, and unrelated behavior are preserved."
+            --notes "VELTRO HTS live trading stability release. Includes LS HSI OVC WebSocket chart updates and the previous request/cache optimization without the duplicate patch stage. Trade-window quote routing now includes HSI and 6J, in-flight quote requests queue the newest refresh instead of silently dropping it, held-position prices are refreshed and applied instead of discarded, non-selected PnL updates in parallel, and market ticks patch only live DOM fields rather than rebuilding all trading controls. Buy/sell and single-position close clicks are guarded against accidental duplicate in-flight actions. Existing order semantics, PnL/tick formulas, margin rules, account/member/balance/deposit/withdrawal data, chart history, indicators, updater, and unrelated behavior are preserved."
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
