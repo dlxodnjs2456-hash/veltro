@@ -18,32 +18,31 @@ helpers=r'''function isHsiCode(){return ['HSI','HSIQ26','HSIU26'].includes(Strin
 if helper_anchor not in renderer: raise RuntimeError('localSymbol anchor missing')
 renderer=renderer.replace(helper_anchor,helper_anchor+'\n  '+helpers,1)
 
-# Keep REST polling only as fallback for non-HSI symbols. HSI uses OVC websocket ticks.
-old_timer="quoteTimer=setInterval(()=>{if(!document.hidden)refreshQuote()},2500);"
-new_timer="quoteTimer=setInterval(()=>{if(!document.hidden&&!isHsiCode())refreshQuote()},2500);"
-if old_timer not in renderer: raise RuntimeError('quote timer anchor missing')
-renderer=renderer.replace(old_timer,new_timer,1)
+# Optimized chart revisions may change the polling interval. Replace the polling expression by shape, not by a fixed millisecond value.
+renderer,n=re.subn(r"quoteTimer=setInterval\(\(\)=>\{if\(!document\.hidden\)refreshQuote\(\)\},\d+\);","quoteTimer=setInterval(()=>{if(!document.hidden&&!isHsiCode())refreshQuote()},1000);",renderer,count=1)
+if n!=1: raise RuntimeError('quote timer shape missing')
 
 old_change="w.querySelector('#proChartSymbol').onchange=e=>{currentCode=e.target.value;state.selected=currentCode;lastBars=[];draw(true);};"
 new_change="w.querySelector('#proChartSymbol').onchange=e=>{closeRealtime();currentCode=e.target.value;state.selected=currentCode;lastBars=[];draw(true);startRealtime();};"
 if old_change not in renderer: raise RuntimeError('symbol onchange anchor missing')
 renderer=renderer.replace(old_change,new_change,1)
 
-old_initial="await draw(true);quoteTimer=setInterval(()=>{if(!document.hidden&&!isHsiCode())refreshQuote()},2500);"
-new_initial="await draw(true);startRealtime();quoteTimer=setInterval(()=>{if(!document.hidden&&!isHsiCode())refreshQuote()},2500);"
-if old_initial not in renderer: raise RuntimeError('initial realtime start anchor missing')
-renderer=renderer.replace(old_initial,new_initial,1)
+# Start the websocket immediately after the first chart draw, regardless of the poll timer's current interval.
+initial_anchor="await draw(true);"
+if initial_anchor not in renderer: raise RuntimeError('initial chart draw anchor missing')
+renderer=renderer.replace(initial_anchor,initial_anchor+'startRealtime();',1)
 
 old_unload="window.addEventListener('beforeunload',()=>{clearInterval(quoteTimer);clearInterval(barTimer);destroyChart();},{once:true});"
 new_unload="window.addEventListener('beforeunload',()=>{closeRealtime();clearInterval(quoteTimer);clearInterval(barTimer);destroyChart();},{once:true});document.addEventListener('visibilitychange',()=>{if(document.hidden)closeRealtime();else if(isHsiCode())startRealtime();});"
 if old_unload not in renderer: raise RuntimeError('beforeunload anchor missing')
 renderer=renderer.replace(old_unload,new_unload,1)
 
-# Remove TradingView text from the chart footer while preserving the required notice behind the existing gear control.
+# Remove the visible footer attribution only; keep the required attribution notice and link behind the chart info control.
 renderer,n=re.subn(r'<span class="chart-attribution">.*?</span>','',renderer,count=1,flags=re.S)
 if n!=1: raise RuntimeError('chart attribution footer anchor missing')
 gear_anchor="w.querySelector('#indicatorBtn').onclick=()=>{panel.hidden=!panel.hidden;updateIndicatorPanel();};"
 gear_new=gear_anchor+"const gear=w.querySelector('.tv-gear');if(gear){gear.style.cursor='pointer';gear.title='차트 정보 / 오픈소스 고지';gear.onclick=showChartNotice;}"
+if gear_anchor not in renderer: raise RuntimeError('chart gear anchor missing')
 renderer=renderer.replace(gear_anchor,gear_new,1)
 
 renderer_path.write_text(renderer,encoding='utf-8')
