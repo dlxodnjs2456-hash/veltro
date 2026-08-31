@@ -14,6 +14,8 @@ on:
       - 'desktop/patch/hsi_ref_v26.py'
       - 'desktop/patch/hsi_history_v27.py'
       - 'desktop/patch/hsi_ipc_v28.py'
+      - 'desktop/patch/perf_v29.py'
+      - 'desktop/patch/realtime_v30.py'
       - '.github/workflows/build-veltro-hts.yml'
 
 permissions:
@@ -113,6 +115,14 @@ jobs:
         shell: pwsh
         run: python desktop/patch/hsi_ipc_v28.py
 
+      - name: Apply request and redraw performance optimization
+        shell: pwsh
+        run: python desktop/patch/perf_v29.py
+
+      - name: Enable LS OVC realtime chart stream
+        shell: pwsh
+        run: python desktop/patch/realtime_v30.py
+
       - name: Install dependencies
         working-directory: desktop/build
         run: npm install --no-audit --no-fund
@@ -156,7 +166,7 @@ jobs:
             desktop/build/dist/latest.yml \
             --target main --latest \
             --title "VELTRO HTS v${VERSION}" \
-            --notes "VELTRO HTS HSI history transport fix. HSI historical candles now load through Electron main-process IPC instead of renderer direct fetch, use the selected HSI contract code, and request up to 3000 LS o3123 bars. Existing Databento CME routing, indicators, trading, account, DB, member, balance, order, position, deposit/withdrawal, notification, poster, updater, and unrelated behavior are preserved."
+            --notes "VELTRO HTS realtime/performance release. HSI live chart updates now use LS overseas-futures OVC WebSocket ticks instead of 2.5-second REST polling, with automatic reconnect and live candle/volume updates. v1.0.29 request/redraw caching is included. The visible TradingView attribution is removed from the chart footer and the required Lightweight Charts attribution notice/link is moved into the chart gear information panel. Existing trading, account, member, balance, order, position, deposit/withdrawal, notification, poster, updater, Databento historical routing, indicators, and unrelated behavior are preserved."
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
