@@ -11,6 +11,7 @@ on:
       - 'desktop/patch/databento_chart_v23.py'
       - 'desktop/patch/indicators_v24.py'
       - 'desktop/patch/hsi_ls_v25.py'
+      - 'desktop/patch/hsi_ref_v26.py'
       - '.github/workflows/build-veltro-hts.yml'
 
 permissions:
@@ -98,6 +99,10 @@ jobs:
         shell: pwsh
         run: python desktop/patch/hsi_ls_v25.py
 
+      - name: Fix HSI chart market reference routing
+        shell: pwsh
+        run: python desktop/patch/hsi_ref_v26.py
+
       - name: Install dependencies
         working-directory: desktop/build
         run: npm install --no-audit --no-fund
@@ -141,7 +146,7 @@ jobs:
             desktop/build/dist/latest.yml \
             --target main --latest \
             --title "VELTRO HTS v${VERSION}" \
-            --notes "VELTRO HTS hybrid market-data chart release. HSI charts and current price are routed to the newly verified LS Securities overseas-futures API, while NQ/ES/CL/GC/SI/6J historical charts remain on Databento. Existing indicators, trading, account, DB, member, balance, order, position, deposit/withdrawal, notification, poster, updater, and unrelated behavior are preserved."
+            --notes "VELTRO HTS hybrid market-data chart release. Fixes HSI dropdown routing so HSIQ26/HSIU26 resolve to LS code HSI and HKEX correctly instead of falling back to the previous NQ/Databento state. Existing indicators, trading, account, DB, member, balance, order, position, deposit/withdrawal, notification, poster, updater, and unrelated behavior are preserved."
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
