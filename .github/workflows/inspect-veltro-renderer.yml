@@ -44,16 +44,31 @@ jobs:
         shell: pwsh
         run: |
           @'
-          import pathlib,re
+          import pathlib,re,sys
+          sys.stdout.reconfigure(encoding='utf-8',errors='backslashreplace')
           s=pathlib.Path('desktop/build/src/renderer.js').read_text(encoding='utf-8')
-          terms=['setInterval','position','unreal','pnl','placeOrder','submitOrder','closePosition','tradePost','refresh','loadAccount','market-tick','renderTrading','positions']
-          lines=s.splitlines()
-          seen=set()
-          for i,line in enumerate(lines):
-            low=line.lower()
-            if any(t.lower() in low for t in terms):
-              a=max(0,i-2); b=min(len(lines),i+3); key=(a,b)
-              if key in seen: continue
-              seen.add(key); print(f'--- lines {a+1}-{b} ---'); print('\n'.join(lines[a:b])[:7000])
+          pats=[
+            r'async function refreshSelectedMarket\(.*?\n\}',
+            r'async function refreshOpenOrderMarkets\(.*?\n\}',
+            r'async function loadTradingState\(.*?\n\}',
+            r'async function placeOrder\(.*?\n\}',
+            r'async function closePosition\(.*?\n\}',
+            r'function renderTrade\(.*?\n\}',
+            r'function renderPositions\(.*?\n\}',
+            r'setInterval\([^\n]+',
+          ]
+          for p in pats:
+            print('===',p,'===')
+            ms=list(re.finditer(p,s,re.S))
+            for m in ms[:8]: print(m.group(0)[:12000].encode('ascii','backslashreplace').decode('ascii'))
+          for token in ['trading-api','order_create','position_close','refreshSelectedMarket(','render();','renderTrade(','state.prices[','veltro:market-tick']:
+            print('=== TOKEN',token,'===')
+            i=0
+            while True:
+              i=s.find(token,i)
+              if i<0: break
+              print(s[max(0,i-900):min(len(s),i+1800)].encode('ascii','backslashreplace').decode('ascii'))
+              i+=len(token)
           '@ | Set-Content inspect_renderer.py
+          $env:PYTHONIOENCODING='utf-8'
           python inspect_renderer.py
