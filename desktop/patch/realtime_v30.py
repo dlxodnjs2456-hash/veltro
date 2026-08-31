@@ -18,16 +18,17 @@ helpers=r'''function isHsiCode(){return ['HSI','HSIQ26','HSIU26'].includes(Strin
 if helper_anchor not in renderer: raise RuntimeError('localSymbol anchor missing')
 renderer=renderer.replace(helper_anchor,helper_anchor+'\n  '+helpers,1)
 
-# Optimized chart revisions may change the polling interval. Replace the polling expression by shape, not by a fixed millisecond value.
-renderer,n=re.subn(r"quoteTimer=setInterval\(\(\)=>\{if\(!document\.hidden\)refreshQuote\(\)\},\d+\);","quoteTimer=setInterval(()=>{if(!document.hidden&&!isHsiCode())refreshQuote()},1000);",renderer,count=1)
-if n!=1: raise RuntimeError('quote timer shape missing')
+# HSI is updated by OVC websocket. Keep the existing timer for other symbols and turn refreshQuote into a no-op for HSI.
+quote_anchor="async function refreshQuote(){const ref=localRef(),sy=localSymbol();"
+quote_new="async function refreshQuote(){if(isHsiCode())return;const ref=localRef(),sy=localSymbol();"
+if quote_anchor not in renderer: raise RuntimeError('refreshQuote anchor missing')
+renderer=renderer.replace(quote_anchor,quote_new,1)
 
 old_change="w.querySelector('#proChartSymbol').onchange=e=>{currentCode=e.target.value;state.selected=currentCode;lastBars=[];draw(true);};"
 new_change="w.querySelector('#proChartSymbol').onchange=e=>{closeRealtime();currentCode=e.target.value;state.selected=currentCode;lastBars=[];draw(true);startRealtime();};"
 if old_change not in renderer: raise RuntimeError('symbol onchange anchor missing')
 renderer=renderer.replace(old_change,new_change,1)
 
-# Start the websocket immediately after the first chart draw, regardless of the poll timer's current interval.
 initial_anchor="await draw(true);"
 if initial_anchor not in renderer: raise RuntimeError('initial chart draw anchor missing')
 renderer=renderer.replace(initial_anchor,initial_anchor+'startRealtime();',1)
@@ -37,7 +38,6 @@ new_unload="window.addEventListener('beforeunload',()=>{closeRealtime();clearInt
 if old_unload not in renderer: raise RuntimeError('beforeunload anchor missing')
 renderer=renderer.replace(old_unload,new_unload,1)
 
-# Remove the visible footer attribution only; keep the required attribution notice and link behind the chart info control.
 renderer,n=re.subn(r'<span class="chart-attribution">.*?</span>','',renderer,count=1,flags=re.S)
 if n!=1: raise RuntimeError('chart attribution footer anchor missing')
 gear_anchor="w.querySelector('#indicatorBtn').onclick=()=>{panel.hidden=!panel.hidden;updateIndicatorPanel();};"
@@ -47,7 +47,7 @@ renderer=renderer.replace(gear_anchor,gear_new,1)
 
 renderer_path.write_text(renderer,encoding='utf-8')
 check=renderer_path.read_text(encoding='utf-8')
-for needle in ['hsi-realtime-api','LIVE · LS WS','applyRealtimeTick','startRealtime','showChartNotice','오픈소스 고지']:
+for needle in ['hsi-realtime-api','LIVE · LS WS','applyRealtimeTick','startRealtime','showChartNotice','오픈소스 고지','if(isHsiCode())return;']:
     if needle not in check: raise RuntimeError('missing realtime v30 patch: '+needle)
 if 'class="chart-attribution"' in check: raise RuntimeError('visible chart attribution footer remains')
 print('VELTRO v1.0.30 HSI OVC websocket realtime and attribution relocation applied')
