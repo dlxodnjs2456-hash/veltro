@@ -22,7 +22,24 @@ if quit_anchor not in preload: raise RuntimeError('preload anchor missing')
 if "getHsiKline:" not in preload:
     preload=preload.replace(quit_anchor,quit_anchor+"\n  getHsiKline: (args) => ipcRenderer.invoke('app:hsi-kline', args),",1)
 
+prefs_anchor="let prefs=chartIndicatorPrefs();"
+if prefs_anchor not in renderer: raise RuntimeError('chart prefs anchor missing')
+renderer=renderer.replace(prefs_anchor,prefs_anchor+"\n  const chartCache=window.__veltroChartCache||(window.__veltroChartCache=new Map());",1)
+
+req_old="const chartReq=lsHsi?window.desktop.getHsiKline({symbol:String(currentCode||'HSIQ26'),kType:currentK,limit:3000}).catch(()=>null):(dbUrl?fetch(dbUrl,{cache:'no-store'}).then(r=>r.json()).catch(()=>null):Promise.resolve({ok:false,error:'chart_symbol_not_supported'}));"
+req_new="const chartCacheKey=(lsHsi?'ls:':'db:')+String(currentCode)+':'+String(currentK);const cachedChart=chartCache.get(chartCacheKey);const loadChart=()=>lsHsi?window.desktop.getHsiKline({symbol:String(currentCode||'HSIQ26'),kType:currentK,limit:3000}).catch(()=>null):(dbUrl?fetch(dbUrl,{cache:'no-store'}).then(r=>r.json()).catch(()=>null):Promise.resolve({ok:false,error:'chart_symbol_not_supported'}));const chartReq=(cachedChart&&Date.now()-cachedChart.at<60000)?Promise.resolve(cachedChart.data):loadChart().then(data=>{if(data?.ok)chartCache.set(chartCacheKey,{at:Date.now(),data});return data;});"
+if req_old not in renderer: raise RuntimeError('chart request cache anchor missing')
+renderer=renderer.replace(req_old,req_new,1)
+
+reload_old="w.querySelector('#chartReload').onclick=()=>draw(true);"
+if reload_old not in renderer: raise RuntimeError('chart reload anchor missing')
+renderer=renderer.replace(reload_old,"w.querySelector('#chartReload').onclick=()=>{chartCache.clear();draw(true);};",1)
+
+timer_old="barTimer=setInterval(()=>{if(!document.hidden)draw(false)},30000);"
+if timer_old not in renderer: raise RuntimeError('bar timer anchor missing')
+renderer=renderer.replace(timer_old,"barTimer=setInterval(()=>{if(!document.hidden)draw(false)},120000);",1)
+
 renderer_path.write_text(renderer,encoding='utf-8'); main_path.write_text(main,encoding='utf-8'); preload_path.write_text(preload,encoding='utf-8')
-for path,needle in [(renderer_path,'window.desktop.getHsiKline'),(main_path,"ipcMain.handle('app:hsi-kline'"),(preload_path,'getHsiKline:')]:
-    if needle not in path.read_text(encoding='utf-8'): raise RuntimeError('missing v28 HSI IPC patch: '+needle)
-print('VELTRO v1.0.28 HSI history IPC bridge applied')
+for path,needle in [(renderer_path,'window.desktop.getHsiKline'),(main_path,"ipcMain.handle('app:hsi-kline'"),(preload_path,'getHsiKline:'),(renderer_path,'__veltroChartCache'),(renderer_path,'120000')]:
+    if needle not in path.read_text(encoding='utf-8'): raise RuntimeError('missing v28/v29 performance patch: '+needle)
+print('VELTRO HSI IPC + chart caching/redraw optimization applied')
