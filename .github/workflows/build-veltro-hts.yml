@@ -7,6 +7,7 @@ on:
       - 'desktop/RELEASE'
       - 'desktop/patch/chart_v20.py'
       - 'desktop/patch/ls_only_v21.py'
+      - 'desktop/patch/databento_chart_v22.py'
       - '.github/workflows/build-veltro-hts.yml'
 
 permissions:
@@ -78,6 +79,10 @@ jobs:
         shell: pwsh
         run: python desktop/patch/ls_only_v21.py
 
+      - name: Switch chart to Databento historical validation
+        shell: pwsh
+        run: python desktop/patch/databento_chart_v22.py
+
       - name: Install dependencies
         working-directory: desktop/build
         run: npm install --no-audit --no-fund
@@ -121,7 +126,7 @@ jobs:
             desktop/build/dist/latest.yml \
             --target main --latest \
             --title "VELTRO HTS v${VERSION}" \
-            --notes "VELTRO HTS automatic patch release. Chart accepts LS Securities original market data only; sample, accumulated and fallback candles are not displayed. Existing trading, account, DB, member, balance, order, position, deposit/withdrawal, notification, poster, and updater behavior is preserved unless explicitly patched."
+            --notes "VELTRO HTS Databento historical chart validation release. The chart loads CME Globex GLBX.MDP3 historical OHLCV candles from Databento for validation. Existing trading, account, DB, member, balance, order, position, deposit/withdrawal, notification, poster, and updater behavior is preserved."
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
