@@ -1,0 +1,48 @@
+name: Apply WTS MTS realtime candle runtime v8 once
+
+on:
+  push:
+    paths:
+      - '.github/workflows/apply-wts-chart-live-v8.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate and inject runtime
+        shell: bash
+        run: |
+          node --check wts-chart-live-v8.js
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('index.html')
+          s=p.read_text(encoding='utf-8')
+          tag='<script src="/wts-chart-live-v8.js?v=20260901-1"></script>'
+          if tag not in s:
+              anchor='</body>'
+              if anchor not in s: raise SystemExit('index body anchor missing')
+              s=s.replace(anchor,tag+'\n'+anchor,1)
+          # Ensure it loads after the core WTS runtime.
+          if s.find('/wts-chart-live-v8.js') < s.find('/wts-runtime-v6.js'):
+              raise SystemExit('live v8 must load after runtime v6')
+          p.write_text(s,encoding='utf-8')
+          PY
+          grep -F '/wts-chart-v3.js' index.html
+          grep -F '/wts-runtime-v6.js' index.html
+          grep -F '/wts-chart-live-v8.js?v=20260901-1' index.html
+      - name: Commit runtime loader
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.html
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'Enable persistent realtime candle recording on WTS MTS'
+          git push
