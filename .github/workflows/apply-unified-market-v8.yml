@@ -45,7 +45,7 @@ jobs:
               assert 'functions/v1/market-data-api' in s, fn
               assert 'functions/v1/wts-market-feed' not in s, fn
           s=Path('index.html').read_text(encoding='utf-8')
-          for marker in ['입출금','회원정보','submit_order','close_position','confirm_requested']:
+          for marker in ['입출금','회원정보','submit_order','close_position','deposit_request']:
               assert marker in s, marker
           PY
       - name: Commit unified feed patch
