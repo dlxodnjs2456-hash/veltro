@@ -1,0 +1,54 @@
+name: Apply contract PnL benchmarks v1.0.47 once
+
+on:
+  push:
+    paths:
+      - '.github/workflows/apply-contract-pnl-v47-once.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Sync WTS MTS contract PnL values and HTS release version
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          p=Path('index.html')
+          s=p.read_text(encoding='utf-8')
+          replacements={
+            "{symbol:'CLV26',code:'CL',name:'Crude Oil',exchange:'NYMEX',month:'202610',tick:.01,tickValue:13840}":"{symbol:'CLV26',code:'CL',name:'Crude Oil',exchange:'NYMEX',month:'202610',tick:.01,tickValue:13695}",
+            "{symbol:'GCZ26',code:'GC',name:'Gold',exchange:'COMEX',month:'202612',tick:.1,tickValue:13840}":"{symbol:'GCZ26',code:'GC',name:'Gold',exchange:'COMEX',month:'202612',tick:.1,tickValue:13695}",
+            "{symbol:'SIU26',code:'SI',name:'Silver',exchange:'COMEX',month:'202609',tick:.005,tickValue:34600}":"{symbol:'SIU26',code:'SI',name:'Silver',exchange:'COMEX',month:'202609',tick:.005,tickValue:34237.5}",
+            "{symbol:'6JU26',code:'6J',name:'Japanese Yen',exchange:'CME',month:'202609',tick:.5,tickValue:8650}":"{symbol:'6JU26',code:'6J',name:'Japanese Yen',exchange:'CME',month:'202609',tick:.5,tickValue:8559.4}",
+          }
+          for old,new in replacements.items():
+              if old not in s:
+                  raise SystemExit('WTS/MTS contract anchor missing: '+old)
+              s=s.replace(old,new,1)
+          p.write_text(s,encoding='utf-8')
+
+          Path('desktop/RELEASE').write_text('1.0.47\n',encoding='utf-8')
+
+          checks=[
+            ((87.88-87.92)/.01*13695*5,-273900,'CL'),
+            ((4429.6-4429.8)/.1*13695*5,-136950,'GC'),
+            ((65.610-65.65)/.005*34237.5*5,-1369500,'SI'),
+            ((6255.5-6256)/.5*8559.4*5,-42797,'6J'),
+            ((29220.75-29225)/.25*6847.5*10,-1164075,'NQ'),
+          ]
+          for got,expected,name in checks:
+              if round(got)!=expected:
+                  raise SystemExit(f'{name} benchmark mismatch: {got} != {expected}')
+          print('All supplied PnL benchmarks verified')
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.html desktop/RELEASE
+          git commit -m 'Sync supplied contract PnL benchmarks to WTS MTS and v1.0.47' || exit 0
+          git push
