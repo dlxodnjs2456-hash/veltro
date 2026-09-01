@@ -17,6 +17,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.view.Gravity;
 import android.view.View;
+import android.view.WindowManager;
 import android.webkit.CookieManager;
 import android.webkit.DownloadListener;
 import android.webkit.WebChromeClient;
@@ -37,9 +38,9 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 
 public class MainActivity extends Activity {
-    private static final String APP_VERSION = "1.0.4";
-    private static final String START_URL = "https://veltro-n8v3.vercel.app/?app=mts&v=104";
-    private static final String VERSION_URL = "https://veltro-n8v3.vercel.app/mobile/version.json?v=104";
+    private static final String APP_VERSION = "1.0.5";
+    private static final String START_URL = "https://veltro-n8v3.vercel.app/?app=mts&v=105";
+    private static final String VERSION_URL = "https://veltro-n8v3.vercel.app/mobile/version.json?v=105";
 
     private WebView webView;
     private TextView loadingView;
@@ -52,6 +53,7 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         getWindow().setStatusBarColor(Color.rgb(4, 10, 24));
         getWindow().setNavigationBarColor(Color.rgb(4, 10, 24));
+        getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
 
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(Color.rgb(4, 10, 24));
@@ -60,6 +62,12 @@ public class MainActivity extends Activity {
         webView.setBackgroundColor(Color.rgb(4, 10, 24));
         webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
         webView.setVerticalScrollBarEnabled(false);
+        webView.setFocusable(true);
+        webView.setFocusableInTouchMode(true);
+        webView.setOnTouchListener((v, event) -> {
+            if (!v.hasFocus()) v.requestFocus();
+            return false;
+        });
         root.addView(webView, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT));
@@ -108,7 +116,7 @@ public class MainActivity extends Activity {
         settings.setCacheMode(WebSettings.LOAD_DEFAULT);
         settings.setMediaPlaybackRequiresUserGesture(false);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-        settings.setUserAgentString(settings.getUserAgentString() + " VELTRO-Android/1.0.4");
+        settings.setUserAgentString(settings.getUserAgentString() + " VELTRO-Android/1.0.5");
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) settings.setSafeBrowsingEnabled(true);
 
         CookieManager.getInstance().setAcceptCookie(true);
@@ -131,6 +139,9 @@ public class MainActivity extends Activity {
             @Override
             public void onPageFinished(WebView view, String url) {
                 hideLoading();
+                view.setFocusable(true);
+                view.setFocusableInTouchMode(true);
+                view.requestFocus(View.FOCUS_DOWN);
                 if (!updateChecked) {
                     updateChecked = true;
                     checkForUpdate();
@@ -293,6 +304,9 @@ public class MainActivity extends Activity {
         if (webView != null) {
             webView.onResume();
             webView.resumeTimers();
+            webView.setFocusable(true);
+            webView.setFocusableInTouchMode(true);
+            webView.requestFocus(View.FOCUS_DOWN);
             if (hasNetwork()) webView.evaluateJavascript("window.dispatchEvent(new Event('online'));", null);
             else webView.evaluateJavascript("window.dispatchEvent(new Event('offline'));", null);
         }
