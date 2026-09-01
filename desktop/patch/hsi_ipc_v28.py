@@ -6,9 +6,9 @@ renderer=renderer_path.read_text(encoding='utf-8')
 main=main_path.read_text(encoding='utf-8')
 preload=preload_path.read_text(encoding='utf-8')
 
-old="const hsiUrl='https://mzjkvakigwtlibwlslhq.supabase.co/functions/v1/hsi-kline-api?token=veltro-hsi-kline-20260831&symbol=HSIU26&kType='+encodeURIComponent(String(currentK))+'&limit=3000';const chartReq=lsHsi?fetch(hsiUrl,{cache:'no-store'}).then(r=>r.json()).catch(()=>null):(dbUrl?fetch(dbUrl,{cache:'no-store'}).then(r=>r.json()).catch(()=>null):Promise.resolve({ok:false,error:'chart_symbol_not_supported'}));"
-new="const chartReq=lsHsi?window.desktop.getHsiKline({symbol:String(currentCode||'HSIQ26'),kType:currentK,limit:3000}).catch(()=>null):(dbUrl?fetch(dbUrl,{cache:'no-store'}).then(r=>r.json()).catch(()=>null):Promise.resolve({ok:false,error:'chart_symbol_not_supported'}));"
-if old not in renderer: raise RuntimeError('v27 HSI direct-fetch anchor missing')
+old="const hsiUrl='https://mzjkvakigwtlibwlslhq.supabase.co/functions/v1/hsi-kline-api?token=veltro-hsi-kline-20260831&symbol=HSIU26&kType='+encodeURIComponent(String(currentK))+'&limit=3000';const chartReq=lsHsi?fetch(hsiUrl,{cache:'no-store'}).then(r=>r.json()).catch(()=>null):window.desktop.getMarketKline({...ref,kType:currentK,limit:3000}).catch(()=>null);"
+new="const chartReq=lsHsi?window.desktop.getHsiKline({symbol:String(currentCode||'HSIQ26'),kType:currentK,limit:3000}).catch(()=>null):window.desktop.getMarketKline({...ref,kType:currentK,limit:3000}).catch(()=>null);"
+if old not in renderer: raise RuntimeError('v27 isolated HSI direct-fetch anchor missing')
 renderer=renderer.replace(old,new,1)
 
 handler_anchor="ipcMain.handle('app:quit',()=>app.quit());"
@@ -26,8 +26,8 @@ prefs_anchor="let prefs=chartIndicatorPrefs();"
 if prefs_anchor not in renderer: raise RuntimeError('chart prefs anchor missing')
 renderer=renderer.replace(prefs_anchor,prefs_anchor+"\n  const chartCache=window.__veltroChartCache||(window.__veltroChartCache=new Map());",1)
 
-req_old="const chartReq=lsHsi?window.desktop.getHsiKline({symbol:String(currentCode||'HSIQ26'),kType:currentK,limit:3000}).catch(()=>null):(dbUrl?fetch(dbUrl,{cache:'no-store'}).then(r=>r.json()).catch(()=>null):Promise.resolve({ok:false,error:'chart_symbol_not_supported'}));"
-req_new="const chartCacheKey=(lsHsi?'ls:':'db:')+String(currentCode)+':'+String(currentK);const cachedChart=chartCache.get(chartCacheKey);const loadChart=()=>lsHsi?window.desktop.getHsiKline({symbol:String(currentCode||'HSIQ26'),kType:currentK,limit:3000}).catch(()=>null):(dbUrl?fetch(dbUrl,{cache:'no-store'}).then(r=>r.json()).catch(()=>null):Promise.resolve({ok:false,error:'chart_symbol_not_supported'}));const chartReq=(cachedChart&&Date.now()-cachedChart.at<60000)?Promise.resolve(cachedChart.data):loadChart().then(data=>{if(data?.ok)chartCache.set(chartCacheKey,{at:Date.now(),data});return data;});"
+req_old="const chartReq=lsHsi?window.desktop.getHsiKline({symbol:String(currentCode||'HSIQ26'),kType:currentK,limit:3000}).catch(()=>null):window.desktop.getMarketKline({...ref,kType:currentK,limit:3000}).catch(()=>null);"
+req_new="const chartCacheKey=(lsHsi?'ls:':'db:')+String(currentCode)+':'+String(currentK);const cachedChart=chartCache.get(chartCacheKey);const loadChart=()=>lsHsi?window.desktop.getHsiKline({symbol:String(currentCode||'HSIQ26'),kType:currentK,limit:3000}).catch(()=>null):window.desktop.getMarketKline({...ref,kType:currentK,limit:3000}).catch(()=>null);const chartReq=(cachedChart&&Date.now()-cachedChart.at<60000)?Promise.resolve(cachedChart.data):loadChart().then(data=>{if(data?.ok)chartCache.set(chartCacheKey,{at:Date.now(),data});return data;});"
 if req_old not in renderer: raise RuntimeError('chart request cache anchor missing')
 renderer=renderer.replace(req_old,req_new,1)
 
@@ -40,6 +40,7 @@ if timer_old not in renderer: raise RuntimeError('bar timer anchor missing')
 renderer=renderer.replace(timer_old,"barTimer=setInterval(()=>{if(!document.hidden)draw(false)},120000);",1)
 
 renderer_path.write_text(renderer,encoding='utf-8'); main_path.write_text(main,encoding='utf-8'); preload_path.write_text(preload,encoding='utf-8')
-for path,needle in [(renderer_path,'window.desktop.getHsiKline'),(main_path,"ipcMain.handle('app:hsi-kline'"),(preload_path,'getHsiKline:'),(renderer_path,'__veltroChartCache'),(renderer_path,'120000')]:
-    if needle not in path.read_text(encoding='utf-8'): raise RuntimeError('missing v28/v29 performance patch: '+needle)
-print('VELTRO HSI IPC + chart caching/redraw optimization applied')
+for path,needle in [(renderer_path,'window.desktop.getHsiKline'),(main_path,"ipcMain.handle('app:hsi-kline'"),(preload_path,'getHsiKline:'),(renderer_path,'__veltroChartCache'),(renderer_path,'window.desktop.getMarketKline({...ref,kType:currentK,limit:3000})')]:
+    if needle not in path.read_text(encoding='utf-8'): raise RuntimeError('missing isolated HSI IPC patch: '+needle)
+if 'databento-kline-test' in renderer_path.read_text(encoding='utf-8'): raise RuntimeError('obsolete Databento test endpoint remains')
+print('VELTRO HSI IPC isolated; production Databento path and cache preserved')
