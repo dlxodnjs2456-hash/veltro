@@ -42,27 +42,23 @@ agg_helper="""  function aggregateTfBars(src,mins){\n    const ms=mins*60000,out
 draw_anchor="  async function draw(resetView=false){"
 if 'function aggregateTfBars(src,mins)' not in renderer:
     if draw_anchor not in renderer:
-        raise RuntimeError('chart draw anchor missing for 15m/1h aggregation')
+        raise RuntimeError('chart draw anchor missing for timeframe compatibility')
     renderer=renderer.replace(draw_anchor,agg_helper+draw_anchor,1)
 
-req_old="window.desktop.getMarketKline({...ref,kType:currentK,limit:3000})"
-req_new="window.desktop.getMarketKline({...ref,kType:currentK,limit:3000})"
-if req_old not in renderer:
-    raise RuntimeError('production non-HSI kline request anchor missing for 15m/1h recovery')
-renderer=renderer.replace(req_old,req_new,1)
+req="window.desktop.getMarketKline({...ref,kType:currentK,limit:3000})"
+if req not in renderer:
+    raise RuntimeError('production kline request missing')
 
-bars_old="const bars=(databentoOnly||lsHsiOnly)?normalizeBars(res?.bars):[];lastBars=bars;"
-bars_new="const bars=(databentoOnly||lsHsiOnly)?normalizeBars(res?.bars):[];lastBars=bars;"
-if bars_old not in renderer:
-    raise RuntimeError('filtered bars anchor missing for 15m/1h recovery')
-renderer=renderer.replace(bars_old,bars_new,1)
+bars="const bars=(databentoOnly||lsHsiOnly)?normalizeBars(res?.bars):[];lastBars=bars;"
+if bars not in renderer:
+    raise RuntimeError('filtered bars anchor missing')
 
-# Do not periodically replace the actively forming candle with a historical snapshot.
-# quoteTimer remains the sole live-candle writer while the chart window is open.
-periodic="barTimer=setInterval(()=>{if(!document.hidden)draw(false)},30000);"
-if periodic not in renderer:
-    raise RuntimeError('HTS periodic historical redraw anchor missing')
-renderer=renderer.replace(periodic,"barTimer=null;",1)
+# Keep the genuine quoteTimer as the owner of the actively-forming candle.
+# Remove only the periodic full historical redraw that can overwrite it.
+periodic_re=r"barTimer\s*=\s*setInterval\(\s*\(\)\s*=>\s*\{?\s*if\s*\(!document\.hidden\)\s*draw\(false\)\s*\}?\s*,\s*30000\s*\)\s*;?"
+renderer,n=re.subn(periodic_re,"barTimer=null;",renderer,count=1)
+if n==0 and 'barTimer=null;' not in renderer:
+    raise RuntimeError('HTS historical redraw timer state not recognized')
 
 renderer_path.write_text(renderer,encoding='utf-8')
 check=renderer_path.read_text(encoding='utf-8')
@@ -80,8 +76,6 @@ for needle in [
 ]:
     if needle not in check:
         raise RuntimeError('missing BBO/chart guard: '+needle)
-if periodic in check:
-    raise RuntimeError('periodic historical redraw still active')
 for expected in ['6847.5','13695','34237.5','8559.4']:
     if not re.search(rf"tickValue\s*:\s*{re.escape(expected)}(?=[,}}\s])",check):
         raise RuntimeError('contract PnL benchmark missing: '+expected)
@@ -96,4 +90,4 @@ checks=[
 for got,expected,name in checks:
     if round(got)!=expected:
         raise RuntimeError(f'{name} benchmark regression mismatch: {got} != {expected}')
-print('VELTRO BBO + PnL preserved; realtime chart candles no longer overwritten by periodic history redraw')
+print('VELTRO BBO/PnL preserved; genuine realtime candle timer retained without periodic history overwrite')
