@@ -29,11 +29,6 @@
       const p=baseApi(url,body,auth,retry).then(v=>{const q=v?.quote||v?.data||v,px=validPx(q?.ld??q?.last??q?.price);if(px!=null){quoteCache.set(code,{at:Date.now(),value:v});quoteMetaByCode.set(code,{at:Date.now(),marketAt:Number(q?.t)||Date.now()});paintConn()}return v}).catch(e=>{const stale=quoteCache.get(code);paintConn();if(stale?.value)return stale.value;throw e}).finally(()=>quoteInflight.delete(code));
       quoteInflight.set(code,p);return p;
     }
-    if(url===FEED&&act==='kline'&&(Number(body?.kType)===3||Number(body?.kType)===5)){
-      const target=Number(body.kType)===3?15:60;
-      const r=await baseApi(url,{...body,kType:1,limit:3000},auth,retry);
-      return {...r,bars:aggregateKlineBars(r?.bars,target)};
-    }
     if(url===TRADING&&['submit_order','close_position','cancel_order','set_overnight'].includes(act)){
       const key=act+'|'+String(body?.position_id??body?.order_id??body?.symbol??'')+'|'+String(body?.side??'')+'|'+String(body?.order_type??'')+'|'+String(body?.qty??'')+'|'+String(body?.price??'');
       if(actionInflight.has(key))return actionInflight.get(key);

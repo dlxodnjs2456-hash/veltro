@@ -50,14 +50,14 @@ if 'function aggregateTfBars(src,mins)' not in renderer:
 
 # By this stage HSI has its own chartReq. Replace only the non-HSI Databento request.
 req_old="window.desktop.getMarketKline({...ref,kType:currentK,limit:3000})"
-req_new="window.desktop.getMarketKline({...ref,kType:((currentK===3||currentK===5)?1:currentK),limit:3000})"
+req_new="window.desktop.getMarketKline({...ref,kType:currentK,limit:3000})"
 if req_old not in renderer:
     raise RuntimeError('production non-HSI kline request anchor missing for 15m/1h recovery')
 renderer=renderer.replace(req_old,req_new,1)
 
 # Preserve the existing Databento/LS filtering exactly; aggregate only accepted non-HSI Databento bars.
 bars_old="const bars=(databentoOnly||lsHsiOnly)?normalizeBars(res?.bars):[];lastBars=bars;"
-bars_new="let bars=(databentoOnly||lsHsiOnly)?normalizeBars(res?.bars):[];if(!lsHsi&&currentK===3)bars=aggregateTfBars(bars,15);else if(!lsHsi&&currentK===5)bars=aggregateTfBars(bars,60);lastBars=bars;"
+bars_new="const bars=(databentoOnly||lsHsiOnly)?normalizeBars(res?.bars):[];lastBars=bars;"
 if bars_old not in renderer:
     raise RuntimeError('filtered bars anchor missing for 15m/1h recovery')
 renderer=renderer.replace(bars_old,bars_new,1)
@@ -70,10 +70,6 @@ for needle in [
     'const prevAsk=Number(p.ask),prevBid=Number(p.bid);',
     'window.__veltroLadderCenter',
     'Math.abs(p.last-ladderCenter)>=tick*2',
-    'aggregateTfBars(bars,15)',
-    'aggregateTfBars(bars,60)',
-    '!lsHsi&&currentK===3',
-    '!lsHsi&&currentK===5',
     'lsHsiOnly'
 ]:
     if needle not in check:
@@ -92,5 +88,5 @@ checks=[
 for got,expected,name in checks:
     if round(got)!=expected:
         raise RuntimeError(f'{name} benchmark regression mismatch: {got} != {expected}')
-print('VELTRO BBO + contract PnL + non-HSI 15m/1h Databento aggregation applied; received prices unchanged')
-# v1.0.48 retry trigger; no unrelated runtime behavior changed.
+print('VELTRO BBO + contract PnL preserved; 15m/1h use native backend historical aggregation')
+# v1.0.49 historical timeframe routing; no unrelated runtime behavior changed.
