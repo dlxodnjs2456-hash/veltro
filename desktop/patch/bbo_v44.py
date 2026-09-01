@@ -54,3 +54,4 @@ pnl=(29220.75-29225.00)/0.25*6847.5*10
 if round(pnl)!=-1164075:
     raise RuntimeError(f'NQ benchmark regression mismatch: {pnl}')
 print('VELTRO real BBO + ladder recenter + NQ PnL benchmark applied; received prices are not modified')
+# v1.0.46 release trigger: no runtime behavior change below this line.
