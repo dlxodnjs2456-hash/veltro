@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/apply-wts-runtime-v6.yml'
+      - 'wts-runtime-v6.js'
+      - 'wts-chart-v3.js'
 
 permissions:
   contents: write
@@ -17,9 +19,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Validate runtime JavaScript
-        run: node --check wts-runtime-v6.js
-      - name: Replace position v5 loader with final runtime v6
+      - name: Validate WTS JavaScript
+        run: |
+          node --check wts-runtime-v6.js
+          node --check wts-chart-v3.js
+      - name: Refresh final runtime loaders
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -27,10 +31,16 @@ jobs:
           p=Path('index.html')
           s=p.read_text(encoding='utf-8')
           s=re.sub(r'\s*<script src="/wts-position-quotes-v5\.js\?v=[^"]+"></script>', '', s)
-          tag='<script src="/wts-runtime-v6.js?v=20260901-1"></script>'
-          if tag not in s:
+          s=re.sub(r'<script src="/wts-chart-v3\.js\?v=[^"]+"></script>', '<script src="/wts-chart-v3.js?v=20260901-2"></script>', s)
+          s=re.sub(r'<script src="/wts-runtime-v6\.js\?v=[^"]+"></script>', '<script src="/wts-runtime-v6.js?v=20260901-2"></script>', s)
+          chart='<script src="/wts-chart-v3.js?v=20260901-2"></script>'
+          runtime='<script src="/wts-runtime-v6.js?v=20260901-2"></script>'
+          if chart not in s:
               if '</body>' not in s: raise SystemExit('body anchor missing')
-              s=s.replace('</body>',tag+'\n</body>',1)
+              s=s.replace('</body>',chart+'\n</body>',1)
+          if runtime not in s:
+              if '</body>' not in s: raise SystemExit('body anchor missing')
+              s=s.replace('</body>',runtime+'\n</body>',1)
           for required in ['/wts-hotfix-v2.js','/wts-chart-v3.js','/wts-responsive-v4.js','/wts-runtime-v6.js']:
               if required not in s: raise SystemExit('missing required loader: '+required)
           p.write_text(s,encoding='utf-8')
@@ -44,13 +54,15 @@ jobs:
           missing=[x for x in anchors if x not in s]
           if missing: raise SystemExit('protected anchors missing: '+','.join(missing))
           if 'wts-position-quotes-v5.js' in s: raise SystemExit('old position v5 loader still present')
-          print('Protected functionality anchors preserved; runtime v6 loader verified')
+          for tag in ['wts-chart-v3.js?v=20260901-2','wts-runtime-v6.js?v=20260901-2']:
+              if tag not in s: raise SystemExit('loader version missing: '+tag)
+          print('Protected functionality anchors preserved; WTS/MTS loaders refreshed')
           PY
-      - name: Commit WTS MTS runtime loader
+      - name: Commit WTS MTS loader refresh
         run: |
           if git diff --quiet -- index.html; then exit 0; fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add index.html
-          git commit -m 'Load WTS MTS stability runtime v6'
+          git commit -m 'Refresh WTS MTS stability loaders'
           git push
