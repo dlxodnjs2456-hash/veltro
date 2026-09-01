@@ -23,6 +23,7 @@ on:
       - 'desktop/patch/hsi_maintenance_v36.py'
       - 'desktop/patch/signup_v37.py'
       - 'desktop/patch/updater_v39.py'
+      - 'desktop/patch/bbo_v44.py'
       - '.github/workflows/build-veltro-hts.yml'
 
 permissions:
@@ -158,6 +159,10 @@ jobs:
         shell: pwsh
         run: python desktop/patch/updater_v39.py
 
+      - name: Use real Databento BBO without synthetic price offsets
+        shell: pwsh
+        run: python desktop/patch/bbo_v44.py
+
       - name: Install dependencies
         working-directory: desktop/build
         run: npm install --no-audit --no-fund
@@ -203,7 +208,7 @@ jobs:
             desktop/build/dist/latest.yml \
             --target main --latest \
             --title "VELTRO HTS v${VERSION}" \
-            --notes "VELTRO HTS v${VERSION} fixes automatic update discovery and installation by explicitly using the GitHub release feed, automatic download, periodic checks, and install-on-restart. Existing member, balance, order, position, deposit/withdrawal, notice, notification, database, market-data, margin, PnL, login, signup, and HSI maintenance behavior are preserved."
+            --notes "VELTRO HTS v${VERSION} uses Databento live trade/BBO data consistently and removes synthetic last-price bid/ask offsets. Existing member, balance, order, position, deposit/withdrawal, notice, notification, database, margin, PnL, login, signup, and HSI maintenance behavior are preserved."
 
       - name: Verify published release assets
         shell: bash
