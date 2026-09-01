@@ -1,0 +1,56 @@
+name: Apply WTS MTS stability runtime v6 once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apply-wts-runtime-v6.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  stabilize-wts-mts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate runtime JavaScript
+        run: node --check wts-runtime-v6.js
+      - name: Replace position v5 loader with final runtime v6
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          p=Path('index.html')
+          s=p.read_text(encoding='utf-8')
+          s=re.sub(r'\s*<script src="/wts-position-quotes-v5\.js\?v=[^"]+"></script>', '', s)
+          tag='<script src="/wts-runtime-v6.js?v=20260901-1"></script>'
+          if tag not in s:
+              if '</body>' not in s: raise SystemExit('body anchor missing')
+              s=s.replace('</body>',tag+'\n</body>',1)
+          for required in ['/wts-hotfix-v2.js','/wts-chart-v3.js','/wts-responsive-v4.js','/wts-runtime-v6.js']:
+              if required not in s: raise SystemExit('missing required loader: '+required)
+          p.write_text(s,encoding='utf-8')
+          PY
+      - name: Verify protected functionality anchors remain
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          s=Path('index.html').read_text(encoding='utf-8')
+          anchors=['deposit_confirm_request','submit_order','close_position','set_overnight','change_password','withdrawal-api','account-api','trading-api']
+          missing=[x for x in anchors if x not in s]
+          if missing: raise SystemExit('protected anchors missing: '+','.join(missing))
+          if 'wts-position-quotes-v5.js' in s: raise SystemExit('old position v5 loader still present')
+          print('Protected functionality anchors preserved; runtime v6 loader verified')
+          PY
+      - name: Commit WTS MTS runtime loader
+        run: |
+          if git diff --quiet -- index.html; then exit 0; fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.html
+          git commit -m 'Load WTS MTS stability runtime v6'
+          git push
