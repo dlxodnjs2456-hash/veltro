@@ -20,6 +20,7 @@ on:
       - 'desktop/patch/login_v33.py'
       - 'desktop/patch/hsi_rollover_v34.py'
       - 'desktop/patch/remove_hsi_v35.py'
+      - 'desktop/patch/hsi_maintenance_v36.py'
       - '.github/workflows/build-veltro-hts.yml'
 
 permissions:
@@ -143,6 +144,10 @@ jobs:
         shell: pwsh
         run: python desktop/patch/remove_hsi_v35.py
 
+      - name: Restore HSI as maintenance-only instrument
+        shell: pwsh
+        run: python desktop/patch/hsi_maintenance_v36.py
+
       - name: Install dependencies
         working-directory: desktop/build
         run: npm install --no-audit --no-fund
@@ -186,7 +191,7 @@ jobs:
             desktop/build/dist/latest.yml \
             --target main --latest \
             --title "VELTRO HTS v${VERSION}" \
-            --notes "VELTRO HTS v1.0.35 removes HSI/Hang Seng from user-selectable HTS instruments. Existing HSI metadata is preserved only for safe rendering of any historical records, while new symbol selectors no longer expose HSI. Existing member, balance, order, position, deposit/withdrawal, notice, notification, database, other market-data, margin, PnL, login, and updater behavior are unchanged."
+            --notes "VELTRO HTS v1.0.36 restores HSI/Hang Seng to the visible HTS symbol lists but temporarily blocks selection. Selecting HSI in the chart or instrument controls shows '현재 점검중인 종목입니다.' and does not start HSI market-data or trading selection. Existing member, balance, order, position, deposit/withdrawal, notice, notification, database, other market-data, margin, PnL, login, and updater behavior are unchanged."
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
