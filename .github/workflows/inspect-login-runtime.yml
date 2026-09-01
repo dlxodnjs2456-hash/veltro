@@ -1,0 +1,55 @@
+name: Inspect VELTRO login runtime
+on:
+  push:
+    paths:
+      - '.github/workflows/inspect-login-runtime.yml'
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Rebuild login runtime
+        shell: pwsh
+        run: |
+          @'
+          import pathlib,re,subprocess,sys,textwrap
+          root=pathlib.Path.cwd(); bp=root/'.github'/'workflows'/'build-veltro-hts.yml'; cur=bp.read_text(encoding='utf-8')
+          legacy_ref='d8e4b5720be775c2161d21e0fa251f882bf35f9c'; legacy=subprocess.check_output(['git','show',f'{legacy_ref}:.github/workflows/build-veltro-hts.yml'],text=True,encoding='utf-8')
+          try:
+            bp.write_text(legacy,encoding='utf-8'); wf=(root/'.github'/'workflows'/'build-veltro-hts-v112.yml').read_text(encoding='utf-8')
+            m1=re.search(r"- name: Rebuild v1\.0\.11 source exactly.*?run: \|\s*@'\s*\n(.*?)\n\s*'@ \| Set-Content -Path extract_v111\.py",wf,re.S); exec(compile(textwrap.dedent(m1.group(1)),'x.py','exec'),{'__name__':'__main__'}); subprocess.run([sys.executable,'make_v111.py'],check=True); subprocess.run([sys.executable,'patch_v111.py'],check=True)
+            m2=re.search(r"- name: Apply v1\.0\.12 login-poster-only runtime fix.*?run: \|\s*@'\s*\n(.*?)\n\s*'@ \| Set-Content -Path patch_v112\.py",wf,re.S); exec(compile(textwrap.dedent(m2.group(1)),'y.py','exec'),{'__name__':'__main__'})
+          finally: bp.write_text(cur,encoding='utf-8')
+          '@ | Set-Content inspect_rebuild.py
+          $env:VELTRO_VERSION='1.0.31'
+          python inspect_rebuild.py
+          python desktop/patch/current.py
+      - name: Print login HTML and CSS
+        shell: pwsh
+        run: |
+          @'
+          import pathlib,re,sys
+          sys.stdout.reconfigure(encoding='utf-8',errors='backslashreplace')
+          s=pathlib.Path('desktop/build/src/renderer.js').read_text(encoding='utf-8')
+          for token in ['login-card','login-form','loginPosterImage','password','아이디','비밀번호','username','userId']:
+            print('===',token,'===')
+            i=0
+            while True:
+              i=s.find(token,i)
+              if i<0: break
+              print(s[max(0,i-1200):min(len(s),i+2400)].encode('ascii','backslashreplace').decode('ascii'))
+              i+=len(token)
+          css=pathlib.Path('desktop/build/src/styles.css').read_text(encoding='utf-8')
+          for token in ['login','input-icon','login-field']:
+            print('=== CSS',token,'===')
+            for m in list(re.finditer(r'[^{}]*'+re.escape(token)+r'[^{}]*\{[^{}]*\}',css,re.I))[:20]: print(m.group(0).encode('ascii','backslashreplace').decode('ascii'))
+          '@ | Set-Content inspect_login.py
+          $env:PYTHONIOENCODING='utf-8'
+          python inspect_login.py
