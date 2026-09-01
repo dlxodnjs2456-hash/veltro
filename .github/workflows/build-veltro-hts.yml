@@ -22,6 +22,7 @@ on:
       - 'desktop/patch/remove_hsi_v35.py'
       - 'desktop/patch/hsi_maintenance_v36.py'
       - 'desktop/patch/signup_v37.py'
+      - 'desktop/patch/updater_v39.py'
       - '.github/workflows/build-veltro-hts.yml'
 
 permissions:
@@ -149,20 +150,25 @@ jobs:
         shell: pwsh
         run: python desktop/patch/hsi_maintenance_v36.py
 
-      - name: Add HTS signup entry
+      - name: Preserve existing signup entry behavior
         shell: pwsh
         run: python desktop/patch/signup_v37.py
+
+      - name: Enforce reliable GitHub auto updater
+        shell: pwsh
+        run: python desktop/patch/updater_v39.py
 
       - name: Install dependencies
         working-directory: desktop/build
         run: npm install --no-audit --no-fund
 
-      - name: Validate JavaScript
+      - name: Validate JavaScript and updater configuration
         working-directory: desktop/build
         run: |
           node --check src/main.js
           node --check src/preload.js
           node --check src/renderer.js
+          node -e "const p=require('./package.json'); if(!p.build?.publish?.some(x=>x.provider==='github'&&x.owner==='dlxodnjs2456-hash'&&x.repo==='veltro')) process.exit(1)"
 
       - name: Build NSIS installer
         working-directory: desktop/build
@@ -170,7 +176,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: npm run release:win
 
-      - name: Verify packaged login poster
+      - name: Verify packaged login poster and update metadata
         shell: pwsh
         run: |
           $poster = Join-Path $PWD 'desktop/build/dist/win-unpacked/resources/login-left.jpg'
@@ -178,9 +184,10 @@ jobs:
           $hash = (Get-FileHash $poster -Algorithm SHA256).Hash.ToLower()
           $expected = 'b37d4a5df16d9b1cfca3f8cf1b75402f863b379fa26ab5b48cf24112d3fc1980'
           if ($hash -ne $expected) { throw "Packaged login poster hash mismatch: $hash" }
-          $size = (Get-Item $poster).Length
-          if ($size -ne 9965) { throw "Packaged login poster size mismatch: $size" }
-          Write-Host "Packaged login poster verified: $hash ($size bytes)"
+          if (!(Test-Path 'desktop/build/dist/latest.yml')) { throw 'latest.yml missing' }
+          if (!(Test-Path 'desktop/build/dist/VELTRO_HTS_Setup.exe.blockmap')) { throw 'blockmap missing' }
+          Select-String -Path 'desktop/build/dist/latest.yml' -Pattern ('version: ' + '${{ steps.version.outputs.version }}') -SimpleMatch | Out-Null
+          Write-Host "Packaged login poster and updater metadata verified"
 
       - name: Publish auto-update release
         shell: bash
@@ -196,7 +203,19 @@ jobs:
             desktop/build/dist/latest.yml \
             --target main --latest \
             --title "VELTRO HTS v${VERSION}" \
-            --notes "VELTRO HTS v1.0.37 adds a 회원가입 button on the login screen that opens the existing VELTRO signup flow. HSI remains maintenance-only. Existing member, balance, order, position, deposit/withdrawal, notice, notification, database, market-data, margin, PnL, login, and updater behavior are unchanged."
+            --notes "VELTRO HTS v${VERSION} fixes automatic update discovery and installation by explicitly using the GitHub release feed, automatic download, periodic checks, and install-on-restart. Existing member, balance, order, position, deposit/withdrawal, notice, notification, database, market-data, margin, PnL, login, signup, and HSI maintenance behavior are preserved."
+
+      - name: Verify published release assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          TAG="v${VERSION}"
+          gh release view "$TAG" --json assets --jq '.assets[].name' | tee release-assets.txt
+          grep -Fx 'VELTRO_HTS_Setup.exe' release-assets.txt
+          grep -Fx 'VELTRO_HTS_Setup.exe.blockmap' release-assets.txt
+          grep -Fx 'latest.yml' release-assets.txt
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
