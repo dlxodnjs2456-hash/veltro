@@ -12,5 +12,3 @@ services:
         sync: false
       - key: SUPABASE_URL
         value: https://mzjkvakigwtlibwlslhq.supabase.co
-      - key: SUPABASE_SERVICE_ROLE_KEY
-        sync: false
