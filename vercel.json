@@ -1,1 +1,24 @@
-{"version":2,"rewrites":[{"source":"/health","destination":"/api/health"}]}
+{
+  "version": 2,
+  "rewrites": [
+    {
+      "source": "/",
+      "has": [{ "type": "host", "value": "admin.veltro-kr.com" }],
+      "destination": "/admin.html"
+    },
+    {
+      "source": "/",
+      "has": [{ "type": "host", "value": "download.veltro-kr.com" }],
+      "destination": "/download.html"
+    },
+    {
+      "source": "/",
+      "has": [{ "type": "host", "value": "mts.veltro-kr.com" }],
+      "destination": "/mts.html"
+    },
+    {
+      "source": "/health",
+      "destination": "/api/health"
+    }
+  ]
+}
