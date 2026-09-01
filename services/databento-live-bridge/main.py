@@ -28,7 +28,15 @@ dirty: set[str] = set()
 instrument_to_code: dict[int, str] = {}
 
 
-def _price(record: Any) -> float | None:
+def _raw_price(raw: Any) -> float | None:
+    try:
+        f = float(raw) / 1_000_000_000
+        return f if 0 < f < 1_000_000_000 else None
+    except Exception:
+        return None
+
+
+def _event_price(record: Any) -> float | None:
     p = getattr(record, "pretty_price", None)
     try:
         if p is not None:
@@ -37,12 +45,7 @@ def _price(record: Any) -> float | None:
                 return f
     except Exception:
         pass
-    raw = getattr(record, "price", None)
-    try:
-        f = float(raw) / 1_000_000_000
-        return f if f > 0 else None
-    except Exception:
-        return None
+    return _raw_price(getattr(record, "price", None))
 
 
 def _market_ms(record: Any) -> int:
@@ -53,6 +56,30 @@ def _market_ms(record: Any) -> int:
         return int(time.time() * 1000)
 
 
+def _action(record: Any) -> str:
+    value = getattr(record, "action", "")
+    value = getattr(value, "value", value)
+    text = str(value or "").upper()
+    if text in {"T", "TRADE", "ACTION.TRADE"} or text.endswith(".T"):
+        return "T"
+    return text
+
+
+def _level0(record: Any) -> tuple[float | None, float | None, int, int]:
+    try:
+        levels = getattr(record, "levels", None)
+        if not levels:
+            return None, None, 0, 0
+        level = levels[0]
+        bid = _raw_price(getattr(level, "bid_px", None))
+        ask = _raw_price(getattr(level, "ask_px", None))
+        bid_sz = int(getattr(level, "bid_sz", 0) or 0)
+        ask_sz = int(getattr(level, "ask_sz", 0) or 0)
+        return bid, ask, bid_sz, ask_sz
+    except Exception:
+        return None, None, 0, 0
+
+
 def on_record(record: Any) -> None:
     if isinstance(record, db.SymbolMappingMsg):
         code = SYMBOLS.get(str(record.stype_in_symbol))
@@ -60,24 +87,37 @@ def on_record(record: Any) -> None:
             instrument_to_code[int(record.instrument_id)] = code
         return
 
-    if not isinstance(record, db.TradeMsg):
+    mbp1_type = getattr(db, "MBP1Msg", None)
+    if mbp1_type is None or not isinstance(record, mbp1_type):
         return
 
     code = instrument_to_code.get(int(record.instrument_id))
     if not code:
         return
 
-    p = _price(record)
-    if p is None:
+    prev = latest.get(code, {})
+    bid, ask, bid_sz, ask_sz = _level0(record)
+    last_price = prev.get("price")
+    volume = int(prev.get("volume") or 0)
+
+    if _action(record) == "T":
+        trade_price = _event_price(record)
+        if trade_price is not None:
+            last_price = trade_price
+        volume = int(getattr(record, "size", 0) or 0)
+
+    if last_price is None:
         return
 
     latest[code] = {
         "code": code,
         "symbol": next(k for k, v in SYMBOLS.items() if v == code),
-        "price": p,
-        "bid": None,
-        "ask": None,
-        "volume": int(getattr(record, "size", 0) or 0),
+        "price": float(last_price),
+        "bid": bid if bid is not None else prev.get("bid"),
+        "ask": ask if ask is not None else prev.get("ask"),
+        "bid_size": bid_sz,
+        "ask_size": ask_sz,
+        "volume": volume,
         "market_ts": _market_ms(record),
         "provider": "databento_live",
         "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -120,7 +160,7 @@ async def stream_once() -> None:
     client = db.Live(key=DATABENTO_API_KEY, heartbeat_interval_s=10)
     client.subscribe(
         dataset=DATASET,
-        schema="trades",
+        schema="mbp-1",
         symbols=list(SYMBOLS.keys()),
         stype_in="continuous",
     )
@@ -133,6 +173,7 @@ async def stream_loop() -> None:
     while True:
         try:
             instrument_to_code.clear()
+            latest.clear()
             await stream_once()
             backoff = 1
         except Exception as exc:
