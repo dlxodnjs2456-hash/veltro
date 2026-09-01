@@ -14,6 +14,6 @@ renderer_path.write_text(renderer,encoding='utf-8')
 check=renderer_path.read_text(encoding='utf-8')
 if "lsHsi?Promise.resolve(null):window.desktop.getMarketQuote" not in check:
     raise RuntimeError('HSI stale quote guard missing')
-if 'hsi-kline-api' not in check or 'hsi-realtime-api' not in check:
-    raise RuntimeError('HSI LS chart/realtime routes missing')
+if 'window.desktop.getHsiKline' not in check or 'startRealtime' not in check:
+    raise RuntimeError('HSI LS history/realtime runtime missing')
 print('VELTRO v1.0.34 HSI rollover stale-quote guard applied')
