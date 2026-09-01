@@ -22,7 +22,6 @@ if live_anchor not in renderer:
     raise RuntimeError('updateTradeLiveDom anchor missing for ladder recenter')
 renderer=renderer.replace(live_anchor,live_replacement,1)
 
-# Contract PnL benchmarks supplied from the reference HTS.
 benchmarks={
     'NQU26':(6290,6847.5),
     'CLV26':(13840,13695),
@@ -39,8 +38,6 @@ for symbol,(old_value,new_value) in benchmarks.items():
     if count!=1:
         raise RuntimeError(f'{symbol} tickValue {old_value} anchor missing; refusing broad PnL modification')
 
-# 15m/1h: aggregate genuine Databento 1-minute OHLCV locally for non-HSI only.
-# No market price is scaled, bridged, shifted, or synthesized.
 agg_helper="""  function aggregateTfBars(src,mins){\n    const ms=mins*60000,out=[];\n    for(const x of src){\n      const bt=Math.floor(Number(x.t)/ms)*ms,last=out[out.length-1];\n      if(!last||last.t!==bt)out.push({t:bt,o:x.o,h:x.h,l:x.l,c:x.c,v:Number(x.v||0)});\n      else{last.h=Math.max(last.h,x.h);last.l=Math.min(last.l,x.l);last.c=x.c;last.v+=Number(x.v||0);}\n    }\n    return out;\n  }\n"""
 draw_anchor="  async function draw(resetView=false){"
 if 'function aggregateTfBars(src,mins)' not in renderer:
@@ -48,19 +45,24 @@ if 'function aggregateTfBars(src,mins)' not in renderer:
         raise RuntimeError('chart draw anchor missing for 15m/1h aggregation')
     renderer=renderer.replace(draw_anchor,agg_helper+draw_anchor,1)
 
-# By this stage HSI has its own chartReq. Replace only the non-HSI Databento request.
 req_old="window.desktop.getMarketKline({...ref,kType:currentK,limit:3000})"
 req_new="window.desktop.getMarketKline({...ref,kType:currentK,limit:3000})"
 if req_old not in renderer:
     raise RuntimeError('production non-HSI kline request anchor missing for 15m/1h recovery')
 renderer=renderer.replace(req_old,req_new,1)
 
-# Preserve the existing Databento/LS filtering exactly; aggregate only accepted non-HSI Databento bars.
 bars_old="const bars=(databentoOnly||lsHsiOnly)?normalizeBars(res?.bars):[];lastBars=bars;"
 bars_new="const bars=(databentoOnly||lsHsiOnly)?normalizeBars(res?.bars):[];lastBars=bars;"
 if bars_old not in renderer:
     raise RuntimeError('filtered bars anchor missing for 15m/1h recovery')
 renderer=renderer.replace(bars_old,bars_new,1)
+
+# Do not periodically replace the actively forming candle with a historical snapshot.
+# quoteTimer remains the sole live-candle writer while the chart window is open.
+periodic="barTimer=setInterval(()=>{if(!document.hidden)draw(false)},30000);"
+if periodic not in renderer:
+    raise RuntimeError('HTS periodic historical redraw anchor missing')
+renderer=renderer.replace(periodic,"barTimer=null;",1)
 
 renderer_path.write_text(renderer,encoding='utf-8')
 check=renderer_path.read_text(encoding='utf-8')
@@ -70,10 +72,16 @@ for needle in [
     'const prevAsk=Number(p.ask),prevBid=Number(p.bid);',
     'window.__veltroLadderCenter',
     'Math.abs(p.last-ladderCenter)>=tick*2',
-    'lsHsiOnly'
+    'lsHsiOnly',
+    'applyChartOnlyLiveQuote',
+    'quoteTimer=setInterval',
+    'b={t:bt,o:v,h:v,l:v,c:v,v:0}',
+    'barTimer=null;'
 ]:
     if needle not in check:
         raise RuntimeError('missing BBO/chart guard: '+needle)
+if periodic in check:
+    raise RuntimeError('periodic historical redraw still active')
 for expected in ['6847.5','13695','34237.5','8559.4']:
     if not re.search(rf"tickValue\s*:\s*{re.escape(expected)}(?=[,}}\s])",check):
         raise RuntimeError('contract PnL benchmark missing: '+expected)
@@ -88,5 +96,4 @@ checks=[
 for got,expected,name in checks:
     if round(got)!=expected:
         raise RuntimeError(f'{name} benchmark regression mismatch: {got} != {expected}')
-print('VELTRO BBO + contract PnL preserved; 15m/1h use native backend historical aggregation')
-# v1.0.49 historical timeframe routing; no unrelated runtime behavior changed.
+print('VELTRO BBO + PnL preserved; realtime chart candles no longer overwritten by periodic history redraw')
