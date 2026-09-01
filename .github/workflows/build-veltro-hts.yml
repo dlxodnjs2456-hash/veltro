@@ -16,6 +16,7 @@ on:
       - 'desktop/patch/hsi_ipc_v28.py'
       - 'desktop/patch/realtime_v30.py'
       - 'desktop/patch/trade_runtime_v31.py'
+      - 'desktop/patch/login_v32.py'
       - '.github/workflows/build-veltro-hts.yml'
 
 permissions:
@@ -123,6 +124,10 @@ jobs:
         shell: pwsh
         run: python desktop/patch/trade_runtime_v31.py
 
+      - name: Apply v1.0.32 login startup patch
+        shell: pwsh
+        run: python desktop/patch/login_v32.py
+
       - name: Install dependencies
         working-directory: desktop/build
         run: npm install --no-audit --no-fund
@@ -166,7 +171,7 @@ jobs:
             desktop/build/dist/latest.yml \
             --target main --latest \
             --title "VELTRO HTS v${VERSION}" \
-            --notes "VELTRO HTS live trading stability release. Includes LS HSI OVC WebSocket chart updates and the previous request/cache optimization without the duplicate patch stage. Trade-window quote routing now includes HSI and 6J, in-flight quote requests queue the newest refresh instead of silently dropping it, held-position prices are refreshed and applied instead of discarded, non-selected PnL updates in parallel, and market ticks patch only live DOM fields rather than rebuilding all trading controls. Buy/sell and single-position close clicks are guarded against accidental duplicate in-flight actions. Existing order semantics, PnL/tick formulas, margin rules, account/member/balance/deposit/withdrawal data, chart history, indicators, updater, and unrelated behavior are preserved."
+            --notes "VELTRO HTS v1.0.32 login-screen patch. Restores the requested person/lock login field icons and paints the packaged login poster immediately at app startup while preserving the existing cached/remote poster replacement flow. Existing member, balance, order, position, deposit/withdrawal, notice, notification, database, chart, market-data, margin, PnL, and updater behavior are unchanged."
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
