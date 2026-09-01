@@ -1,7 +1,7 @@
 (()=>{
   if(window.__VELTRO_WTS_HOTFIX_V2__) return;
   window.__VELTRO_WTS_HOTFIX_V2__=true;
-  const FEED='https://mzjkvakigwtlibwlslhq.supabase.co/functions/v1/wts-market-feed';
+  const FEED='https://mzjkvakigwtlibwlslhq.supabase.co/functions/v1/market-data-api';
   const isHsi=i=>String(i?.code||'').toUpperCase()==='HSI';
   let quoteSeq=0;
 

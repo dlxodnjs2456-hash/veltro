@@ -1,7 +1,7 @@
 (()=>{
   if(window.__VELTRO_RUNTIME_V6__)return;
   window.__VELTRO_RUNTIME_V6__=true;
-  const FEED='https://mzjkvakigwtlibwlslhq.supabase.co/functions/v1/wts-market-feed';
+  const FEED='https://mzjkvakigwtlibwlslhq.supabase.co/functions/v1/market-data-api';
   const quoteCache=new Map(),quoteInflight=new Map(),actionInflight=new Map(),pxBySymbol=new Map(),quoteMetaByCode=new Map();
   let renewInflight=null,posTimer=null,posBusy=false,resizeTimer=null,connTimer=null;
   const validPx=v=>{v=Number(v);return Number.isFinite(v)&&v>0?v:null};

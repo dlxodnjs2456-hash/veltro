@@ -1,7 +1,7 @@
 (()=>{
   if(window.__VELTRO_WTS_CHART_V3__)return;
   window.__VELTRO_WTS_CHART_V3__=true;
-  const FEED='https://mzjkvakigwtlibwlslhq.supabase.co/functions/v1/wts-market-feed';
+  const FEED='https://mzjkvakigwtlibwlslhq.supabase.co/functions/v1/market-data-api';
   let liveTimer=null,resizeObs=null,candleSeries=null,volumeSeries=null,lastBars=[];
   const tfLabel={1:'1분',2:'5분',3:'15분',4:'30분',5:'1시간'};
   const tfMinutes={1:1,2:5,3:15,4:30,5:60};
@@ -40,13 +40,13 @@
   function setConn(text,stale=false){const el=document.querySelector('#wtsTvConn');if(!el)return;el.textContent=text;el.classList.toggle('stale',!!stale)}
   function shell(){
     const wrap=document.querySelector('.chart-wrap');if(!wrap)return null;
-    wrap.innerHTML=`<div class="wts-tv"><div class="wts-tv-head"><strong id="wtsTvSymbol">${cur.symbol} · ${cur.name}</strong><span id="wtsTvExchange">${cur.exchange}</span><span class="live" id="wtsTvConn">연결 확인 중...</span></div><div class="wts-tv-tfs">${[1,2,3,4,5].map(k=>`<button data-tv-tf="${k}" class="${Number(tf)===k?'active':''}">${tfLabel[k]}</button>`).join('')}<button class="reload" id="wtsTvReload">새로고침</button></div><div class="wts-tv-ohlc" id="wtsTvOhlc"><b id="wtsTvLast">-</b><span>시 -</span><span>고 -</span><span>저 -</span><span>종 -</span></div><div class="wts-tv-box" id="chartBox"><div class="wts-tv-loading">과거봉을 불러오는 중입니다.</div></div><div class="wts-tv-state"><span id="wtsTvState">과거봉 Databento · 현재가 Yahoo 지연시세</span><span id="wtsTvUpdated"></span></div></div>`;
+    wrap.innerHTML=`<div class="wts-tv"><div class="wts-tv-head"><strong id="wtsTvSymbol">${cur.symbol} · ${cur.name}</strong><span id="wtsTvExchange">${cur.exchange}</span><span class="live" id="wtsTvConn">연결 확인 중...</span></div><div class="wts-tv-tfs">${[1,2,3,4,5].map(k=>`<button data-tv-tf="${k}" class="${Number(tf)===k?'active':''}">${tfLabel[k]}</button>`).join('')}<button class="reload" id="wtsTvReload">새로고침</button></div><div class="wts-tv-ohlc" id="wtsTvOhlc"><b id="wtsTvLast">-</b><span>시 -</span><span>고 -</span><span>저 -</span><span>종 -</span></div><div class="wts-tv-box" id="chartBox"><div class="wts-tv-loading">과거봉을 불러오는 중입니다.</div></div><div class="wts-tv-state"><span id="wtsTvState">과거봉 Databento · 현재가 Databento Live 우선</span><span id="wtsTvUpdated"></span></div></div>`;
     wrap.querySelectorAll('[data-tv-tf]').forEach(b=>b.onclick=()=>{tf=Number(b.dataset.tvTf)||1;drawChart()});
     wrap.querySelector('#wtsTvReload').onclick=()=>drawChart();
     return wrap.querySelector('#chartBox');
   }
   function showBar(b){const root=document.querySelector('.wts-tv');if(!root||!b)return;root.querySelector('#wtsTvOhlc').innerHTML=`<b id="wtsTvLast">${fmt(b.c)}</b><span>시 ${fmt(b.o)}</span><span>고 ${fmt(b.h)}</span><span>저 ${fmt(b.l)}</span><span>종 ${fmt(b.c)}</span>`;root.querySelector('#wtsTvUpdated').textContent='마지막 '+new Date(b.t).toLocaleTimeString('ko-KR',{hour12:false})}
-  async function liveUpdate(code){try{const r=await api(FEED,{action:'quote',code});if(cur.code!==code||page!=='trade'||tab!=='chart')return;const q=r?.quote||r?.data||r,v=Number(q?.ld),qt=Number(q?.t||Date.now());if(!Number.isFinite(v)||!candleSeries)return;const age=Date.now()-qt;setConn(age>30000?'시세 지연':'연결됨 · 지연시세',age>30000);const mins=tfMinutes[Number(tf)]||1,bt=Math.floor(qt/(mins*60000))*(mins*60000);let b=lastBars[lastBars.length-1];if(!b)return;if(bt>Math.floor(b.t/(mins*60000))*(mins*60000)){b={t:bt,o:v,h:v,l:v,c:v,v:0};lastBars.push(b)}else{b={...b,t:bt,h:Math.max(b.h,v),l:Math.min(b.l,v),c:v};lastBars[lastBars.length-1]=b}candleSeries.update({time:Math.floor(b.t/1000),open:b.o,high:b.h,low:b.l,close:b.c});showBar(b)}catch(_e){setConn('연결 지연',true)}}
+  async function liveUpdate(code){try{const r=await api(FEED,{action:'quote',code});if(cur.code!==code||page!=='trade'||tab!=='chart')return;const q=r?.quote||r?.data||r,v=Number(q?.ld),qt=Number(q?.t||Date.now());if(!Number.isFinite(v)||!candleSeries)return;const age=Date.now()-qt;setConn(age>5000?'Databento 폴백':'Databento Live',age>5000);const mins=tfMinutes[Number(tf)]||1,bt=Math.floor(qt/(mins*60000))*(mins*60000);let b=lastBars[lastBars.length-1];if(!b)return;if(bt>Math.floor(b.t/(mins*60000))*(mins*60000)){b={t:bt,o:v,h:v,l:v,c:v,v:0};lastBars.push(b)}else{b={...b,t:bt,h:Math.max(b.h,v),l:Math.min(b.l,v),c:v};lastBars[lastBars.length-1]=b}candleSeries.update({time:Math.floor(b.t/1000),open:b.o,high:b.h,low:b.l,close:b.c});showBar(b)}catch(_e){setConn('연결 지연',true)}}
 
   drawChart=async function(){
     if(page!=='trade'||tab!=='chart')return;
@@ -65,7 +65,7 @@
       candleSeries.setData(bars.map(b=>({time:Math.floor(b.t/1000),open:b.o,high:b.h,low:b.l,close:b.c})));
       volumeSeries=chart.addHistogramSeries({priceFormat:{type:'volume'},priceScaleId:'vol'});chart.priceScale('vol').applyOptions({scaleMargins:{top:.78,bottom:0}});volumeSeries.setData(bars.map(b=>({time:Math.floor(b.t/1000),value:b.v,color:b.c>=b.o?'rgba(239,83,80,.45)':'rgba(33,150,243,.45)'})));
       chart.timeScale().fitContent();showBar(bars[bars.length-1]);
-      const root=document.querySelector('.wts-tv');if(root){setConn('연결됨 · 지연시세');root.querySelector('#wtsTvState').textContent=`${symbol} · 과거봉 Databento · 현재가 Yahoo 지연시세 · ${bars.length}봉`;}
+      const root=document.querySelector('.wts-tv');if(root){setConn('Databento 연결');root.querySelector('#wtsTvState').textContent=`${symbol} · 과거봉 Databento · 현재가 Databento Live 우선 · ${bars.length}봉`;}
       resizeObs=new ResizeObserver(()=>{if(chart){const w=Math.max(1,box.clientWidth),h=Math.max(260,box.clientHeight);chart.applyOptions({width:w,height:h})}});resizeObs.observe(box);
       liveTimer=setInterval(()=>{if(!document.hidden)liveUpdate(code)},1500);
     }catch(e){box.innerHTML=`<div class="wts-tv-loading"><div><b>과거봉을 불러오지 못했습니다.</b><br>${String(e?.message||e)}</div></div>`;setConn('연결 오류',true);}
