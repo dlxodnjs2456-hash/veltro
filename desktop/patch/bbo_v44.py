@@ -10,10 +10,6 @@ if old not in renderer:
     raise RuntimeError('v44 synthetic BBO fallback anchor missing')
 renderer=renderer.replace(old,new,1)
 
-# Keep the original trade renderer intact, but remember its window and the price
-# around which the ladder was rendered. If live price moves two ticks away,
-# re-run the existing renderTrade function so its own original ladder builder
-# recenters around the latest received market price. No market price is altered.
 anchor="function renderTrade(w) {"
 replacement="function renderTrade(w) {\n  window.__veltroTradeWindow=w;\n  window.__veltroLadderCenter=Number(state.prices[state.selected]?.last||0);"
 if anchor not in renderer:
@@ -26,14 +22,25 @@ if live_anchor not in renderer:
     raise RuntimeError('updateTradeLiveDom anchor missing for ladder recenter')
 renderer=renderer.replace(live_anchor,live_replacement,1)
 
-# NQ PnL benchmark from supplied reference:
-# LONG 10 @ 29225.00, current 29220.75 => -1,164,075 KRW.
-# This equals 6,847.5 KRW per 0.25-point tick, or 27,390 KRW per point/contract.
-renderer,nq_count=re.subn(r"(NQU26[^\n\r]{0,260}?tickValue\s*:\s*)6290(?:\.0+)?",r"\g<1>6847.5",renderer,count=1)
-if nq_count!=1:
-    renderer,nq_count=re.subn(r"(tickValue\s*:\s*)6290(?:\.0+)?(?=[,}\s])",r"\g<1>6847.5",renderer,count=1)
-if nq_count!=1:
-    raise RuntimeError('NQ tickValue 6290 anchor missing; refusing broad PnL modification')
+# Contract PnL benchmarks supplied from the reference HTS.
+# Only tickValue is changed. Market prices, order behavior, margin, position data,
+# and every non-PnL trading semantic remain untouched.
+benchmarks={
+    'NQU26':(6290,6847.5),
+    'CLV26':(13840,13695),
+    'GCZ26':(13840,13695),
+    'SIU26':(34600,34237.5),
+    '6JU26':(8650,8559.4),
+}
+for symbol,(old_value,new_value) in benchmarks.items():
+    pattern=rf"({re.escape(symbol)}[^\n\r]{{0,300}}?tickValue\s*:\s*){re.escape(str(old_value))}(?:\.0+)?(?=[,}}\s])"
+    renderer,count=re.subn(pattern,rf"\g<1>{new_value}",renderer,count=1)
+    if count!=1:
+        # Safe fallback only when the old tick value is unique enough for the known build base.
+        pattern=rf"(tickValue\s*:\s*){re.escape(str(old_value))}(?:\.0+)?(?=[,}}\s])"
+        renderer,count=re.subn(pattern,rf"\g<1>{new_value}",renderer,count=1)
+    if count!=1:
+        raise RuntimeError(f'{symbol} tickValue {old_value} anchor missing; refusing broad PnL modification')
 
 renderer_path.write_text(renderer,encoding='utf-8')
 check=renderer_path.read_text(encoding='utf-8')
@@ -48,10 +55,19 @@ for needle in [
 ]:
     if needle not in check:
         raise RuntimeError('missing BBO/ladder guard: '+needle)
-if not re.search(r"tickValue\s*:\s*6847\.5",check):
-    raise RuntimeError('NQ PnL benchmark tick value missing')
-pnl=(29220.75-29225.00)/0.25*6847.5*10
-if round(pnl)!=-1164075:
-    raise RuntimeError(f'NQ benchmark regression mismatch: {pnl}')
-print('VELTRO real BBO + ladder recenter + NQ PnL benchmark applied; received prices are not modified')
-# v1.0.46 release trigger: no runtime behavior change below this line.
+for expected in ['6847.5','13695','34237.5','8559.4']:
+    if not re.search(rf"tickValue\s*:\s*{re.escape(expected)}(?=[,}}\s])",check):
+        raise RuntimeError('contract PnL benchmark missing: '+expected)
+
+checks=[
+    ((29220.75-29225.00)/.25*6847.5*10,-1164075,'NQ'),
+    ((87.88-87.92)/.01*13695*5,-273900,'CL'),
+    ((4429.6-4429.8)/.1*13695*5,-136950,'GC'),
+    ((65.610-65.65)/.005*34237.5*5,-1369500,'SI'),
+    ((6255.5-6256)/.5*8559.4*5,-42797,'6J'),
+]
+for got,expected,name in checks:
+    if round(got)!=expected:
+        raise RuntimeError(f'{name} benchmark regression mismatch: {got} != {expected}')
+print('VELTRO real BBO + supplied contract PnL benchmarks applied; received prices are not modified')
+# v1.0.47 release trigger; no other runtime behavior changed.
