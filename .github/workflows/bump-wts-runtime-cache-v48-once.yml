@@ -1,0 +1,33 @@
+name: Bump WTS MTS runtime cache v48 once
+
+on:
+  push:
+    paths:
+      - '.github/workflows/bump-wts-runtime-cache-v48-once.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bump runtime asset query only
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('index.html')
+          s=p.read_text(encoding='utf-8')
+          old='/wts-runtime-v6.js?v=20260901-2'
+          new='/wts-runtime-v6.js?v=20260901-3'
+          if old not in s:
+              raise SystemExit('runtime loader anchor missing')
+          p.write_text(s.replace(old,new,1),encoding='utf-8')
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.html
+          git commit -m 'Bust WTS MTS runtime cache for timeframe fix'
+          git push
