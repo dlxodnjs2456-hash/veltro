@@ -26,6 +26,20 @@ public class MainActivity extends Activity {
     private WebView webView;
     private TextView loadingView;
 
+    private static final String MOBILE_FIX_JS =
+            "(function(){" +
+            "if(window.__veltroMobileFix101)return;window.__veltroMobileFix101=true;" +
+            "var st=document.createElement('style');" +
+            "st.textContent='.drawer{overflow-y:auto!important;overflow-x:hidden!important;-webkit-overflow-scrolling:touch!important;overscroll-behavior:contain!important;padding-bottom:calc(32px + env(safe-area-inset-bottom))!important}.m-main{overflow-x:hidden!important}.mobile{min-height:100vh!important}';" +
+            "document.head.appendChild(st);" +
+            "document.addEventListener('click',function(e){" +
+            "var t=e.target&&e.target.closest?e.target.closest('#mTabs [data-tab]'):null;" +
+            "if(t){e.preventDefault();e.stopImmediatePropagation();try{page='trade';tab=t.dataset.tab;renderAll();closeDrawer();}catch(x){}return;}" +
+            "var s=e.target&&e.target.closest?e.target.closest('#mSymbols [data-symbol]'):null;" +
+            "if(s){e.preventDefault();e.stopImmediatePropagation();try{var n=INS.find(function(i){return i.symbol===s.dataset.symbol});if(!n)return;if(n.code==='HSI'){toast('현재 점검중인 종목입니다.');closeDrawer();return;}cur=n;page='trade';quote=null;renderAll();closeDrawer();loadQuote().then(function(){renderAll();}).catch(function(err){toast('시세 조회 중입니다. 잠시 후 다시 확인해주세요.');});}catch(x){}return;}" +
+            "},true);" +
+            "})();";
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -71,7 +85,7 @@ public class MainActivity extends Activity {
         settings.setBuiltInZoomControls(false);
         settings.setDisplayZoomControls(false);
         settings.setMediaPlaybackRequiresUserGesture(false);
-        settings.setUserAgentString(settings.getUserAgentString() + " VELTRO-Android/1.0.0");
+        settings.setUserAgentString(settings.getUserAgentString() + " VELTRO-Android/1.0.1");
 
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
@@ -94,6 +108,7 @@ public class MainActivity extends Activity {
 
             @Override
             public void onPageFinished(WebView view, String url) {
+                view.evaluateJavascript(MOBILE_FIX_JS, null);
                 loadingView.animate().alpha(0f).setDuration(180).withEndAction(() -> loadingView.setVisibility(View.GONE)).start();
             }
         });
