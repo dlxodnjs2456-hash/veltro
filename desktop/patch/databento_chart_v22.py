@@ -25,16 +25,12 @@ renderer = renderer.replace("foot.textContent=`${currentCode} · LS 원본 · �
 renderer = renderer.replace("conn.textContent='LIVE · LS';", "conn.textContent='HISTORICAL · DATABENTO';", 1)
 renderer = renderer.replace("foot.textContent=`${currentCode} · LS 원본 · ${bars.length}봉`;", "foot.textContent=`${currentCode} · Databento · ${bars.length}봉`;", 1)
 
-# IMPORTANT: preserve the chart's existing quoteTimer. Production live updates must
-# not be disabled here.
 renderer_path.write_text(renderer, encoding='utf-8')
 
 check = renderer_path.read_text(encoding='utf-8')
-for needle in ['window.desktop.getMarketKline({...ref,kType:currentK,limit:3000})', "provider||'').toLowerCase()==='databento'", 'HISTORICAL · DATABENTO']:
+for needle in ['window.desktop.getMarketKline({...ref,kType:currentK,limit:3000})', "provider||'').toLowerCase()==='databento'", 'HISTORICAL · DATABENTO', 'quoteTimer=setInterval']:
     if needle not in check:
         raise RuntimeError('missing production Databento chart patch: ' + needle)
 if 'databento-kline-test' in check:
     raise RuntimeError('obsolete databento-kline-test still present')
-if 'quoteTimer=null' in check:
-    raise RuntimeError('chart quote timer was disabled')
 print('VELTRO production Databento chart path restored; live quote timer preserved')
