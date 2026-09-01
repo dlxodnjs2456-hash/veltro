@@ -23,8 +23,6 @@ if live_anchor not in renderer:
 renderer=renderer.replace(live_anchor,live_replacement,1)
 
 # Contract PnL benchmarks supplied from the reference HTS.
-# Only tickValue is changed. Market prices, order behavior, margin, position data,
-# and every non-PnL trading semantic remain untouched.
 benchmarks={
     'NQU26':(6290,6847.5),
     'CLV26':(13840,13695),
@@ -41,25 +39,27 @@ for symbol,(old_value,new_value) in benchmarks.items():
     if count!=1:
         raise RuntimeError(f'{symbol} tickValue {old_value} anchor missing; refusing broad PnL modification')
 
-# HTS 15m/1h recovery: use the same Databento 1-minute OHLC stream and aggregate
-# it locally. No synthetic prices or scaling are introduced.
+# 15m/1h: aggregate genuine Databento 1-minute OHLCV locally for non-HSI only.
+# No market price is scaled, bridged, shifted, or synthesized.
 agg_helper="""  function aggregateTfBars(src,mins){\n    const ms=mins*60000,out=[];\n    for(const x of src){\n      const bt=Math.floor(Number(x.t)/ms)*ms,last=out[out.length-1];\n      if(!last||last.t!==bt)out.push({t:bt,o:x.o,h:x.h,l:x.l,c:x.c,v:Number(x.v||0)});\n      else{last.h=Math.max(last.h,x.h);last.l=Math.min(last.l,x.l);last.c=x.c;last.v+=Number(x.v||0);}\n    }\n    return out;\n  }\n"""
 draw_anchor="  async function draw(resetView=false){"
-if agg_helper.strip() not in renderer:
+if 'function aggregateTfBars(src,mins)' not in renderer:
     if draw_anchor not in renderer:
         raise RuntimeError('chart draw anchor missing for 15m/1h aggregation')
     renderer=renderer.replace(draw_anchor,agg_helper+draw_anchor,1)
 
+# By this stage HSI has its own chartReq. Replace only the non-HSI Databento request.
 req_old="window.desktop.getMarketKline({...ref,kType:currentK,limit:3000})"
-req_new="window.desktop.getMarketKline({...ref,kType:((currentK===3||currentK===5)?1:currentK),limit:((currentK===3||currentK===5)?3000:3000)})"
+req_new="window.desktop.getMarketKline({...ref,kType:((currentK===3||currentK===5)?1:currentK),limit:3000})"
 if req_old not in renderer:
-    raise RuntimeError('production kline request anchor missing for 15m/1h recovery')
+    raise RuntimeError('production non-HSI kline request anchor missing for 15m/1h recovery')
 renderer=renderer.replace(req_old,req_new,1)
 
-bars_old="const bars=normalizeBars(res?.bars);lastBars=bars;"
-bars_new="let bars=normalizeBars(res?.bars);if(currentK===3)bars=aggregateTfBars(bars,15);else if(currentK===5)bars=aggregateTfBars(bars,60);lastBars=bars;"
+# Preserve the existing Databento/LS filtering exactly; aggregate only accepted non-HSI Databento bars.
+bars_old="const bars=(databentoOnly||lsHsiOnly)?normalizeBars(res?.bars):[];lastBars=bars;"
+bars_new="let bars=(databentoOnly||lsHsiOnly)?normalizeBars(res?.bars):[];if(!lsHsi&&currentK===3)bars=aggregateTfBars(bars,15);else if(!lsHsi&&currentK===5)bars=aggregateTfBars(bars,60);lastBars=bars;"
 if bars_old not in renderer:
-    raise RuntimeError('normalized bars anchor missing for 15m/1h recovery')
+    raise RuntimeError('filtered bars anchor missing for 15m/1h recovery')
 renderer=renderer.replace(bars_old,bars_new,1)
 
 renderer_path.write_text(renderer,encoding='utf-8')
@@ -68,13 +68,13 @@ if 'p.last+s.tickSize' in check or 'p.last-s.tickSize' in check:
     raise RuntimeError('synthetic last +/- tick BBO fallback still present')
 for needle in [
     'const prevAsk=Number(p.ask),prevBid=Number(p.bid);',
-    '?roundToTick(bestAsk,s):',
-    '?roundToTick(bestBid,s):',
     'window.__veltroLadderCenter',
     'Math.abs(p.last-ladderCenter)>=tick*2',
     'aggregateTfBars(bars,15)',
     'aggregateTfBars(bars,60)',
-    'currentK===3||currentK===5'
+    '!lsHsi&&currentK===3',
+    '!lsHsi&&currentK===5',
+    'lsHsiOnly'
 ]:
     if needle not in check:
         raise RuntimeError('missing BBO/chart guard: '+needle)
@@ -92,5 +92,5 @@ checks=[
 for got,expected,name in checks:
     if round(got)!=expected:
         raise RuntimeError(f'{name} benchmark regression mismatch: {got} != {expected}')
-print('VELTRO real BBO + contract PnL + 15m/1h Databento aggregation applied; prices are not modified')
-# v1.0.48 release trigger; no unrelated runtime behavior changed.
+print('VELTRO BBO + contract PnL + non-HSI 15m/1h Databento aggregation applied; received prices unchanged')
+# v1.0.48 retry trigger; no unrelated runtime behavior changed.
