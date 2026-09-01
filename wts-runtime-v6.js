@@ -7,11 +7,11 @@
   const validPx=v=>{v=Number(v);return Number.isFinite(v)&&v>0?v:null};
   const instrument=s=>INS.find(x=>x.symbol===s)||null;
   const isHsi=i=>String(i?.code||'').toUpperCase()==='HSI';
+  const hsiContract=INS.find(x=>String(x?.code||'').toUpperCase()==='HSI');if(hsiContract){hsiContract.symbol='HSIU26';hsiContract.month='202609'}
 
   function ensureConn(){let el=document.querySelector('#veltroConnState');if(el)return el;el=document.createElement('div');el.id='veltroConnState';el.style.cssText='position:fixed;right:10px;top:58px;z-index:80;padding:5px 8px;border-radius:6px;font:700 10px Arial,"Malgun Gothic",sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.12);display:none;pointer-events:none';document.body.appendChild(el);return el}
   function paintConn(){const el=ensureConn();if(!token){el.style.display='none';return}const metas=[...quoteMetaByCode.values()],newest=metas.length?Math.max(...metas.map(x=>Number(x.at)||0)):0,age=newest?Date.now()-newest:Infinity;if(!navigator.onLine){el.textContent='네트워크 연결 없음';el.style.background='#fff1f0';el.style.color='#b42318';el.style.display='block';return}if(age>15000){el.textContent='시세 연결 지연 · 마지막 값 유지';el.style.background='#fff7e6';el.style.color='#b54708';el.style.display='block';return}el.style.display='none'}
 
-  // Coalesce duplicate quote requests and keep the last valid quote on short feed interruptions.
   const baseApi=api;
   api=async function(url,body,auth=true,retry=true){
     const act=String(body?.action||'');
