@@ -59,9 +59,9 @@ build_cfg=pkg.setdefault('build',{})
 build_cfg['publish']=[{'provider':'github','owner':'dlxodnjs2456-hash','repo':'veltro','releaseType':'release'}]
 pkg_path.write_text(json.dumps(pkg,ensure_ascii=False,indent=2),encoding='utf-8')
 
-# v1.0.41: historical bars remain Databento, but the currently forming candle and
+# v1.0.41: historical bars remain Databento, while the currently forming candle and
 # displayed last price use the exact same getMarketQuote response as the HTS quote state.
-# This also prevents the 30-second historical resync from overwriting the live last price.
+# The existing chart refresh cadence is preserved to avoid changing provider load behavior.
 renderer=renderer_path.read_text(encoding='utf-8')
 
 helper_anchor="  async function draw(resetView=false){"
@@ -122,11 +122,6 @@ pattern=r"  async function refreshQuote\(\)\{if\(isHsiCode\(\)\)return;.*?\n  tr
 renderer,n=re.subn(pattern,refresh,renderer,count=1,flags=re.S)
 if n!=1: raise RuntimeError('v1.0.41 live refresh anchor missing')
 
-# Make the visible chart react faster. Match either 2.5s or any previous numeric interval.
-timer_pattern=r"quoteTimer=setInterval\(\(\)=>\{if\(!document\.hidden\)refreshQuote\(\)\},\s*\d+\s*\);"
-renderer,n_timer=re.subn(timer_pattern,"quoteTimer=setInterval(()=>{if(!document.hidden)refreshQuote()},1500);",renderer,count=1)
-if n_timer!=1: raise RuntimeError('v1.0.41 chart quote timer anchor missing')
-
 renderer_path.write_text(renderer,encoding='utf-8')
 
 final_main=main_path.read_text(encoding='utf-8')
@@ -135,6 +130,6 @@ for required in ['setFeedURL','checkForUpdates','autoInstallOnAppQuit','quitAndI
     if required not in final_main: raise RuntimeError('updater runtime missing: '+required)
 if pkg.get('build',{}).get('publish',[{}])[0].get('provider')!='github': raise RuntimeError('github publish provider missing')
 final_renderer=renderer_path.read_text(encoding='utf-8')
-for required in ['applyUnifiedChartQuote','applyMarketQuoteToState(currentCode,qr,false)','if(!applyUnifiedChartQuote(qr))showLastBar','refreshQuote()},1500)']:
+for required in ['applyUnifiedChartQuote','applyMarketQuoteToState(currentCode,qr,false)','if(!applyUnifiedChartQuote(qr))showLastBar','applyUnifiedChartQuote(qr);']:
     if required not in final_renderer: raise RuntimeError('v1.0.41 unified chart fix missing: '+required)
 print('VELTRO v1.0.41 quote/chart unification and live candle runtime verified')
