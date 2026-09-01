@@ -1,14 +1,20 @@
 package kr.co.veltro.mobile;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.app.DownloadManager;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.Gravity;
 import android.view.View;
 import android.webkit.CookieManager;
@@ -23,10 +29,23 @@ import android.widget.FrameLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import org.json.JSONObject;
+
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
+
 public class MainActivity extends Activity {
-    private static final String START_URL = "https://veltro-n8v3.vercel.app/?app=mts&v=103";
+    private static final String APP_VERSION = "1.0.4";
+    private static final String START_URL = "https://veltro-n8v3.vercel.app/?app=mts&v=104";
+    private static final String VERSION_URL = "https://veltro-n8v3.vercel.app/mobile/version.json?v=104";
+
     private WebView webView;
     private TextView loadingView;
+    private ConnectivityManager connectivityManager;
+    private ConnectivityManager.NetworkCallback networkCallback;
+    private boolean updateChecked = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -58,16 +77,18 @@ public class MainActivity extends Activity {
 
         setContentView(root);
         configureWebView();
+        configureNetworkMonitor();
 
         loadingView.setOnClickListener(v -> {
-            if (webView != null) {
+            if (webView != null && hasNetwork()) {
                 loadingView.setText("VELTRO");
                 webView.loadUrl(START_URL);
             }
         });
 
         if (savedInstanceState == null) {
-            webView.loadUrl(START_URL);
+            if (hasNetwork()) webView.loadUrl(START_URL);
+            else showOfflineState();
         } else {
             webView.restoreState(savedInstanceState);
         }
@@ -87,10 +108,8 @@ public class MainActivity extends Activity {
         settings.setCacheMode(WebSettings.LOAD_DEFAULT);
         settings.setMediaPlaybackRequiresUserGesture(false);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-        settings.setUserAgentString(settings.getUserAgentString() + " VELTRO-Android/1.0.3");
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            settings.setSafeBrowsingEnabled(true);
-        }
+        settings.setUserAgentString(settings.getUserAgentString() + " VELTRO-Android/1.0.4");
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) settings.setSafeBrowsingEnabled(true);
 
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
@@ -100,9 +119,7 @@ public class MainActivity extends Activity {
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 Uri uri = request.getUrl();
                 String scheme = uri.getScheme();
-                if ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme)) {
-                    return false;
-                }
+                if ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme)) return false;
                 try {
                     startActivity(new Intent(Intent.ACTION_VIEW, uri));
                 } catch (Exception ignored) {
@@ -113,20 +130,17 @@ public class MainActivity extends Activity {
 
             @Override
             public void onPageFinished(WebView view, String url) {
-                loadingView.animate().alpha(0f).setDuration(150).withEndAction(() -> {
-                    loadingView.setVisibility(View.GONE);
-                    loadingView.setAlpha(1f);
-                }).start();
+                hideLoading();
+                if (!updateChecked) {
+                    updateChecked = true;
+                    checkForUpdate();
+                }
             }
 
             @Override
             public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
                 super.onReceivedError(view, request, error);
-                if (request.isForMainFrame()) {
-                    loadingView.setVisibility(View.VISIBLE);
-                    loadingView.setAlpha(1f);
-                    loadingView.setText("네트워크 연결을 확인하세요.\n화면을 눌러 다시 시도");
-                }
+                if (request.isForMainFrame()) showOfflineState();
             }
         });
 
@@ -142,20 +156,134 @@ public class MainActivity extends Activity {
                     String cookies = CookieManager.getInstance().getCookie(url);
                     if (cookies != null) request.addRequestHeader("Cookie", cookies);
                     request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
-                    request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "VELTRO_download");
+                    String fileName = Uri.parse(url).getLastPathSegment();
+                    if (fileName == null || fileName.trim().isEmpty()) fileName = "VELTRO_download";
+                    request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName);
                     DownloadManager manager = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
                     manager.enqueue(request);
                     Toast.makeText(MainActivity.this, "다운로드를 시작했습니다.", Toast.LENGTH_SHORT).show();
                 } catch (Exception e) {
-                    startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+                    try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url))); } catch (Exception ignored) {}
                 }
             }
         });
     }
 
+    private void configureNetworkMonitor() {
+        connectivityManager = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+        if (connectivityManager == null) return;
+        networkCallback = new ConnectivityManager.NetworkCallback() {
+            @Override
+            public void onAvailable(Network network) {
+                new Handler(Looper.getMainLooper()).post(() -> {
+                    if (webView == null) return;
+                    if (loadingView.getVisibility() == View.VISIBLE) {
+                        loadingView.setText("VELTRO");
+                        webView.loadUrl(START_URL);
+                    }
+                    webView.evaluateJavascript("window.dispatchEvent(new Event('online'));", null);
+                });
+            }
+
+            @Override
+            public void onLost(Network network) {
+                new Handler(Looper.getMainLooper()).post(() -> {
+                    if (!hasNetwork()) {
+                        if (webView != null) webView.evaluateJavascript("window.dispatchEvent(new Event('offline'));", null);
+                        showOfflineState();
+                    }
+                });
+            }
+        };
+        try { connectivityManager.registerDefaultNetworkCallback(networkCallback); } catch (Exception ignored) {}
+    }
+
+    private boolean hasNetwork() {
+        try {
+            if (connectivityManager == null) connectivityManager = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (connectivityManager == null) return false;
+            Network network = connectivityManager.getActiveNetwork();
+            if (network == null) return false;
+            NetworkCapabilities caps = connectivityManager.getNetworkCapabilities(network);
+            return caps != null && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET);
+        } catch (Exception e) {
+            return true;
+        }
+    }
+
+    private void showOfflineState() {
+        if (loadingView == null) return;
+        loadingView.setVisibility(View.VISIBLE);
+        loadingView.setAlpha(1f);
+        loadingView.setText("네트워크 연결을 확인하세요.\n연결되면 자동으로 다시 시도합니다.");
+    }
+
+    private void hideLoading() {
+        if (loadingView == null || loadingView.getVisibility() != View.VISIBLE) return;
+        loadingView.animate().alpha(0f).setDuration(150).withEndAction(() -> {
+            loadingView.setVisibility(View.GONE);
+            loadingView.setAlpha(1f);
+        }).start();
+    }
+
+    private void checkForUpdate() {
+        new Thread(() -> {
+            HttpURLConnection conn = null;
+            try {
+                conn = (HttpURLConnection) new URL(VERSION_URL).openConnection();
+                conn.setConnectTimeout(3500);
+                conn.setReadTimeout(3500);
+                conn.setUseCaches(false);
+                conn.setRequestProperty("Cache-Control", "no-cache");
+                BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream()));
+                StringBuilder sb = new StringBuilder();
+                String line;
+                while ((line = reader.readLine()) != null) sb.append(line);
+                reader.close();
+                JSONObject json = new JSONObject(sb.toString());
+                String latest = json.optString("latestVersion", APP_VERSION);
+                String apkUrl = json.optString("apkUrl", "");
+                String message = json.optString("message", "새 버전이 있습니다.");
+                boolean mandatory = json.optBoolean("mandatory", false);
+                if (isNewer(latest, APP_VERSION) && !apkUrl.isEmpty()) {
+                    runOnUiThread(() -> showUpdateDialog(latest, apkUrl, message, mandatory));
+                }
+            } catch (Exception ignored) {
+            } finally {
+                if (conn != null) conn.disconnect();
+            }
+        }).start();
+    }
+
+    private boolean isNewer(String latest, String current) {
+        try {
+            String[] a = latest.split("\\.");
+            String[] b = current.split("\\.");
+            int n = Math.max(a.length, b.length);
+            for (int i = 0; i < n; i++) {
+                int av = i < a.length ? Integer.parseInt(a[i]) : 0;
+                int bv = i < b.length ? Integer.parseInt(b[i]) : 0;
+                if (av != bv) return av > bv;
+            }
+        } catch (Exception ignored) {}
+        return false;
+    }
+
+    private void showUpdateDialog(String version, String apkUrl, String message, boolean mandatory) {
+        if (isFinishing()) return;
+        AlertDialog.Builder builder = new AlertDialog.Builder(this)
+                .setTitle("VELTRO MTS v" + version)
+                .setMessage(message)
+                .setPositiveButton("업데이트", (dialog, which) -> {
+                    try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(apkUrl))); } catch (Exception ignored) {}
+                });
+        if (!mandatory) builder.setNegativeButton("나중에", null);
+        builder.setCancelable(!mandatory).show();
+    }
+
     @Override
     protected void onSaveInstanceState(Bundle outState) {
-        webView.saveState(outState);
+        if (webView != null) webView.saveState(outState);
         super.onSaveInstanceState(outState);
     }
 
@@ -165,7 +293,8 @@ public class MainActivity extends Activity {
         if (webView != null) {
             webView.onResume();
             webView.resumeTimers();
-            webView.evaluateJavascript("if(document.visibilityState==='visible'){window.dispatchEvent(new Event('online'));}", null);
+            if (hasNetwork()) webView.evaluateJavascript("window.dispatchEvent(new Event('online'));", null);
+            else webView.evaluateJavascript("window.dispatchEvent(new Event('offline'));", null);
         }
     }
 
@@ -182,15 +311,15 @@ public class MainActivity extends Activity {
     @Override
     @SuppressWarnings("deprecation")
     public void onBackPressed() {
-        if (webView != null && webView.canGoBack()) {
-            webView.goBack();
-        } else {
-            super.onBackPressed();
-        }
+        if (webView != null && webView.canGoBack()) webView.goBack();
+        else super.onBackPressed();
     }
 
     @Override
     protected void onDestroy() {
+        if (connectivityManager != null && networkCallback != null) {
+            try { connectivityManager.unregisterNetworkCallback(networkCallback); } catch (Exception ignored) {}
+        }
         if (webView != null) {
             webView.stopLoading();
             webView.loadUrl("about:blank");
