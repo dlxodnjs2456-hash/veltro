@@ -41,3 +41,4 @@ jobs:
           git add .github/workflows/build-veltro-hts.yml desktop/RELEASE
           git commit -m 'Release VELTRO HTS v1.0.37 signup entry'
           git push
+# trigger
