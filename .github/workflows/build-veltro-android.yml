@@ -35,6 +35,12 @@ jobs:
         with:
           gradle-version: '8.10.2'
 
+      - name: Verify Android version
+        run: |
+          grep "versionCode 4" mobile/android/app/build.gradle
+          grep "versionName '1.0.3'" mobile/android/app/build.gradle
+          grep 'VELTRO-Android/1.0.3' mobile/android/app/src/main/java/kr/co/veltro/mobile/MainActivity.java
+
       - name: Build APK
         working-directory: mobile/android
         run: gradle --no-daemon :app:assembleDebug
@@ -42,21 +48,21 @@ jobs:
       - name: Prepare APK
         run: |
           mkdir -p mobile/android/dist
-          cp mobile/android/app/build/outputs/apk/debug/app-debug.apk mobile/android/dist/VELTRO_Mobile_v1.0.2.apk
+          cp mobile/android/app/build/outputs/apk/debug/app-debug.apk mobile/android/dist/VELTRO_Mobile_v1.0.3.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: VELTRO_Mobile_v1.0.2
-          path: mobile/android/dist/VELTRO_Mobile_v1.0.2.apk
+          name: VELTRO_Mobile_v1.0.3
+          path: mobile/android/dist/VELTRO_Mobile_v1.0.3.apk
           if-no-files-found: error
 
       - name: Publish Android test release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release delete android-v1.0.2 --cleanup-tag -y || true
-          gh release create android-v1.0.2 \
-            mobile/android/dist/VELTRO_Mobile_v1.0.2.apk \
-            --title 'VELTRO Android v1.0.2' \
-            --notes 'Adds signup access and uses the shared WTS/MTS hotfix for faster symbol switching, separate mobile buy/sell controls, active mobile tabs, scrolling menu, and moving market quote/PnL display. Existing member, balance, order, position, deposit/withdrawal and database structures are unchanged.'
+          gh release delete android-v1.0.3 --cleanup-tag -y || true
+          gh release create android-v1.0.3 \
+            mobile/android/dist/VELTRO_Mobile_v1.0.3.apk \
+            --title 'VELTRO Android v1.0.3' \
+            --notes 'Stability release for the shared WTS/MTS runtime: improved WebView resume/reconnect behavior, fresh app entry URL, safer rendering, and network retry handling. Trading, member, balance, position, order, deposit/withdrawal and database semantics are unchanged.'
