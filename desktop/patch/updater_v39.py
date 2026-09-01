@@ -59,46 +59,76 @@ build_cfg=pkg.setdefault('build',{})
 build_cfg['publish']=[{'provider':'github','owner':'dlxodnjs2456-hash','repo':'veltro','releaseType':'release'}]
 pkg_path.write_text(json.dumps(pkg,ensure_ascii=False,indent=2),encoding='utf-8')
 
-# v1.0.40: keep the current Databento quote timer, but make the live candle roll over
-# into a new timeframe bucket instead of freezing on the last historical candle.
+# v1.0.41: historical bars remain Databento, but the currently forming candle and
+# displayed last price use the exact same getMarketQuote response as the HTS quote state.
+# This also prevents the 30-second historical resync from overwriting the live last price.
 renderer=renderer_path.read_text(encoding='utf-8')
-fixed_refresh = r'''  async function refreshQuote(){
+
+helper_anchor="  async function draw(resetView=false){"
+helper=r'''  function applyUnifiedChartQuote(qr){
+    if(!qr?.ok||!qr?.quote)return false;
+    const sy=localSymbol(),v=Number(qr.quote.ld);
+    if(!Number.isFinite(v)||v<=0)return false;
+    try{if(typeof applyMarketQuoteToState==='function')applyMarketQuoteToState(currentCode,qr,false);}catch(_e){}
+    lastEl.textContent=fmt(v,dec(sy));
+    if(!candleSeries)return true;
+    const bucket=({1:1,2:5,3:15,4:30,5:60}[currentK]||1)*60000;
+    const now=Date.now();
+    let bt=Math.floor(now/bucket)*bucket;
+    let prev=lastBars.length?{...lastBars[lastBars.length-1]}:null;
+    let prevBt=prev?Math.floor(Number(prev.t)/bucket)*bucket:null;
+    if(prevBt!==null&&bt<prevBt)bt=prevBt;
+    let b;
+    if(!prev||prevBt!==bt){
+      const open=prev&&Number.isFinite(Number(prev.c))?Number(prev.c):v;
+      b={t:bt,o:open,h:Math.max(open,v),l:Math.min(open,v),c:v,v:0};
+      lastBars.push(b);
+    }else{
+      b=prev;
+      b.h=Math.max(Number(b.h)||v,v);
+      b.l=Math.min(Number(b.l)||v,v);
+      b.c=v;
+      b.t=bt;
+      lastBars[lastBars.length-1]=b;
+    }
+    candleSeries.update({time:Math.floor(bt/1000),open:b.o,high:b.h,low:b.l,close:b.c});
+    if(volumeSeries)volumeSeries.update({time:Math.floor(bt/1000),value:Number(b.v)||0,color:b.c>=b.o?'rgba(239,83,80,.45)':'rgba(33,150,243,.45)'});
+    showLastBar(b);
+    const provider=String(qr?.provider||state.market?.provider||'MARKET').toUpperCase();
+    conn.textContent='LIVE · '+provider;
+    conn.classList.add('live');
+    return true;
+  }
+'''
+if helper_anchor not in renderer: raise RuntimeError('v1.0.41 draw anchor missing')
+renderer=renderer.replace(helper_anchor,helper+helper_anchor,1)
+
+# Historical redraw must end by applying the live quote, never by overwriting it with
+# the delayed historical last close.
+old_after="buildChart(bars);showLastBar(bars[bars.length-1]);if(resetView)chart?.timeScale()?.fitContent();"
+new_after="buildChart(bars);if(!applyUnifiedChartQuote(qr))showLastBar(bars[bars.length-1]);if(resetView)chart?.timeScale()?.fitContent();"
+if old_after not in renderer: raise RuntimeError('v1.0.41 historical overwrite anchor missing')
+renderer=renderer.replace(old_after,new_after,1)
+
+# Replace whatever live-refresh implementation previous versions left behind with one
+# unified path that always updates state + displayed last price + current candle together.
+refresh=r'''  async function refreshQuote(){
     if(isHsiCode())return;
-    const ref=localRef(),sy=localSymbol();
+    const ref=localRef();
     if(!ref)return;
     try{
-      const qr=await window.desktop.getMarketQuote(ref),v=Number(qr?.quote?.ld);
-      if(!(qr?.ok&&Number.isFinite(v)))return;
-      lastEl.textContent=fmt(v,dec(sy));
-      if(!candleSeries)return;
-      const bucket=({1:1,2:5,3:15,4:30,5:60}[currentK]||1)*60000;
-      let ts=Number(qr?.quote?.t);
-      if(!Number.isFinite(ts)||ts<=0)ts=Date.now();
-      else if(ts<1e12)ts*=1000;
-      const bt=Math.floor(ts/bucket)*bucket;
-      let b=lastBars.length?{...lastBars[lastBars.length-1]}:null;
-      const prevBt=b?Math.floor(Number(b.t)/bucket)*bucket:null;
-      if(!b||prevBt!==bt){
-        b={t:bt,o:v,h:v,l:v,c:v,v:0};
-        lastBars.push(b);
-      }else{
-        b.h=Math.max(Number(b.h)||v,v);
-        b.l=Math.min(Number(b.l)||v,v);
-        b.c=v;
-        b.t=bt;
-        lastBars[lastBars.length-1]=b;
-      }
-      candleSeries.update({time:Math.floor(bt/1000),open:b.o,high:b.h,low:b.l,close:b.c});
-      if(volumeSeries)volumeSeries.update({time:Math.floor(bt/1000),value:Number(b.v)||0,color:b.c>=b.o?'rgba(239,83,80,.45)':'rgba(33,150,243,.45)'});
-      showLastBar(b);
-      conn.textContent='LIVE · DATABENTO';
-      conn.classList.add('live');
+      const qr=await window.desktop.getMarketQuote(ref);
+      applyUnifiedChartQuote(qr);
     }catch(_e){}
   }
   try{await initMarketData();'''
 pattern=r"  async function refreshQuote\(\)\{if\(isHsiCode\(\)\)return;.*?\n  try\{await initMarketData\(\);"
-renderer,n=re.subn(pattern,fixed_refresh,renderer,count=1,flags=re.S)
-if n!=1: raise RuntimeError('v1.0.40 live candle refresh anchor missing')
+renderer,n=re.subn(pattern,refresh,renderer,count=1,flags=re.S)
+if n!=1: raise RuntimeError('v1.0.41 live refresh anchor missing')
+
+# Make the visible chart react faster while keeping requests serialized by Electron/provider.
+renderer=renderer.replace("quoteTimer=setInterval(()=>{if(!document.hidden)refreshQuote()},2500);","quoteTimer=setInterval(()=>{if(!document.hidden)refreshQuote()},1500);",1)
+
 renderer_path.write_text(renderer,encoding='utf-8')
 
 final_main=main_path.read_text(encoding='utf-8')
@@ -107,6 +137,6 @@ for required in ['setFeedURL','checkForUpdates','autoInstallOnAppQuit','quitAndI
     if required not in final_main: raise RuntimeError('updater runtime missing: '+required)
 if pkg.get('build',{}).get('publish',[{}])[0].get('provider')!='github': raise RuntimeError('github publish provider missing')
 final_renderer=renderer_path.read_text(encoding='utf-8')
-for required in ['lastBars.push(b)','lastBars[lastBars.length-1]=b','LIVE · DATABENTO','else if(ts<1e12)ts*=1000']:
-    if required not in final_renderer: raise RuntimeError('v1.0.40 chart fix missing: '+required)
-print('VELTRO v1.0.40 updater and live candle rollover runtime verified')
+for required in ['applyUnifiedChartQuote','applyMarketQuoteToState(currentCode,qr,false)','if(!applyUnifiedChartQuote(qr))showLastBar','quoteTimer=setInterval(()=>{if(!document.hidden)refreshQuote()},1500)']:
+    if required not in final_renderer: raise RuntimeError('v1.0.41 unified chart fix missing: '+required)
+print('VELTRO v1.0.41 quote/chart unification and live candle runtime verified')
