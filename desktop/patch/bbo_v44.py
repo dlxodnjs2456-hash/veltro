@@ -1,4 +1,4 @@
-import pathlib
+import pathlib,re
 
 root=pathlib.Path.cwd()
 renderer_path=root/'desktop'/'build'/'src'/'renderer.js'
@@ -26,6 +26,15 @@ if live_anchor not in renderer:
     raise RuntimeError('updateTradeLiveDom anchor missing for ladder recenter')
 renderer=renderer.replace(live_anchor,live_replacement,1)
 
+# NQ PnL benchmark from supplied reference:
+# LONG 10 @ 29225.00, current 29220.75 => -1,164,075 KRW.
+# This equals 6,847.5 KRW per 0.25-point tick, or 27,390 KRW per point/contract.
+renderer,nq_count=re.subn(r"(NQU26[^\n\r]{0,260}?tickValue\s*:\s*)6290(?:\.0+)?",r"\g<1>6847.5",renderer,count=1)
+if nq_count!=1:
+    renderer,nq_count=re.subn(r"(tickValue\s*:\s*)6290(?:\.0+)?(?=[,}\s])",r"\g<1>6847.5",renderer,count=1)
+if nq_count!=1:
+    raise RuntimeError('NQ tickValue 6290 anchor missing; refusing broad PnL modification')
+
 renderer_path.write_text(renderer,encoding='utf-8')
 check=renderer_path.read_text(encoding='utf-8')
 if 'p.last+s.tickSize' in check or 'p.last-s.tickSize' in check:
@@ -39,4 +48,9 @@ for needle in [
 ]:
     if needle not in check:
         raise RuntimeError('missing BBO/ladder guard: '+needle)
-print('VELTRO real BBO + ladder auto-recenter guard applied; received prices are not modified')
+if not re.search(r"tickValue\s*:\s*6847\.5",check):
+    raise RuntimeError('NQ PnL benchmark tick value missing')
+pnl=(29220.75-29225.00)/0.25*6847.5*10
+if round(pnl)!=-1164075:
+    raise RuntimeError(f'NQ benchmark regression mismatch: {pnl}')
+print('VELTRO real BBO + ladder recenter + NQ PnL benchmark applied; received prices are not modified')
