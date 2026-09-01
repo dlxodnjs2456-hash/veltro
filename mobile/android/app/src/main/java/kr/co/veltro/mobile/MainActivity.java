@@ -6,6 +6,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.view.Gravity;
@@ -13,6 +14,7 @@ import android.view.View;
 import android.webkit.CookieManager;
 import android.webkit.DownloadListener;
 import android.webkit.WebChromeClient;
+import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -22,7 +24,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 public class MainActivity extends Activity {
-    private static final String START_URL = "https://veltro-n8v3.vercel.app/";
+    private static final String START_URL = "https://veltro-n8v3.vercel.app/?app=mts&v=103";
     private WebView webView;
     private TextView loadingView;
 
@@ -37,6 +39,8 @@ public class MainActivity extends Activity {
 
         webView = new WebView(this);
         webView.setBackgroundColor(Color.rgb(4, 10, 24));
+        webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        webView.setVerticalScrollBarEnabled(false);
         root.addView(webView, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT));
@@ -47,12 +51,20 @@ public class MainActivity extends Activity {
         loadingView.setTextSize(25f);
         loadingView.setGravity(Gravity.CENTER);
         loadingView.setBackgroundColor(Color.rgb(4, 10, 24));
+        loadingView.setClickable(true);
         root.addView(loadingView, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT));
 
         setContentView(root);
         configureWebView();
+
+        loadingView.setOnClickListener(v -> {
+            if (webView != null) {
+                loadingView.setText("VELTRO");
+                webView.loadUrl(START_URL);
+            }
+        });
 
         if (savedInstanceState == null) {
             webView.loadUrl(START_URL);
@@ -68,10 +80,17 @@ public class MainActivity extends Activity {
         settings.setDatabaseEnabled(true);
         settings.setLoadWithOverviewMode(true);
         settings.setUseWideViewPort(true);
+        settings.setSupportZoom(false);
         settings.setBuiltInZoomControls(false);
         settings.setDisplayZoomControls(false);
+        settings.setTextZoom(100);
+        settings.setCacheMode(WebSettings.LOAD_DEFAULT);
         settings.setMediaPlaybackRequiresUserGesture(false);
-        settings.setUserAgentString(settings.getUserAgentString() + " VELTRO-Android/1.0.2");
+        settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+        settings.setUserAgentString(settings.getUserAgentString() + " VELTRO-Android/1.0.3");
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            settings.setSafeBrowsingEnabled(true);
+        }
 
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
@@ -94,7 +113,20 @@ public class MainActivity extends Activity {
 
             @Override
             public void onPageFinished(WebView view, String url) {
-                loadingView.animate().alpha(0f).setDuration(180).withEndAction(() -> loadingView.setVisibility(View.GONE)).start();
+                loadingView.animate().alpha(0f).setDuration(150).withEndAction(() -> {
+                    loadingView.setVisibility(View.GONE);
+                    loadingView.setAlpha(1f);
+                }).start();
+            }
+
+            @Override
+            public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+                super.onReceivedError(view, request, error);
+                if (request.isForMainFrame()) {
+                    loadingView.setVisibility(View.VISIBLE);
+                    loadingView.setAlpha(1f);
+                    loadingView.setText("네트워크 연결을 확인하세요.\n화면을 눌러 다시 시도");
+                }
             }
         });
 
@@ -128,6 +160,26 @@ public class MainActivity extends Activity {
     }
 
     @Override
+    protected void onResume() {
+        super.onResume();
+        if (webView != null) {
+            webView.onResume();
+            webView.resumeTimers();
+            webView.evaluateJavascript("if(document.visibilityState==='visible'){window.dispatchEvent(new Event('online'));}", null);
+        }
+    }
+
+    @Override
+    protected void onPause() {
+        if (webView != null) {
+            CookieManager.getInstance().flush();
+            webView.onPause();
+            webView.pauseTimers();
+        }
+        super.onPause();
+    }
+
+    @Override
     @SuppressWarnings("deprecation")
     public void onBackPressed() {
         if (webView != null && webView.canGoBack()) {
@@ -141,7 +193,11 @@ public class MainActivity extends Activity {
     protected void onDestroy() {
         if (webView != null) {
             webView.stopLoading();
+            webView.loadUrl("about:blank");
+            webView.clearHistory();
+            webView.removeAllViews();
             webView.destroy();
+            webView = null;
         }
         super.onDestroy();
     }
