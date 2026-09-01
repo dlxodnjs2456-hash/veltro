@@ -29,9 +29,12 @@ left_html=f'''<div class="login-art veltro-login-art exact-poster-art" id="login
           </div>'''
 renderer,n=left_pattern.subn(left_html,renderer,count=1)
 if n!=1: raise RuntimeError('Could not replace login poster panel')
+renderer,n_user=re.subn(r'<span class="field-icon user-icon"[^>]*>.*?</span>','<span class="field-icon user-icon" aria-hidden="true">&#128100;</span>',renderer,count=1,flags=re.S)
+renderer,n_lock=re.subn(r'<span class="field-icon lock-icon"[^>]*>.*?</span>','<span class="field-icon lock-icon" aria-hidden="true">&#128274;</span>',renderer,count=1,flags=re.S)
+if n_user!=1 or n_lock!=1: raise RuntimeError(f'Could not normalize login icons: user={n_user} lock={n_lock}')
 renderer=re.sub(r'v 1\.0\.\d+',f'v {version}',renderer)
 version_line="window.desktop?.version().then(v => document.getElementById('version').textContent = `v ${v}`);"
-poster_loader="""(async()=>{const img=document.getElementById('loginPosterImage');if(!img)return;try{const cfg=await window.desktop?.remoteLoginPoster?.();const remote=cfg?.login_image_data;if(remote&&String(remote).startsWith('data:image/')){img.src=remote;img.classList.add('ready');return;}}catch{}try{const local=await window.desktop?.loginPosterUrl?.();if(local){img.src=local;img.classList.add('ready');}}catch{}})();"""
+poster_loader="""(async()=>{const img=document.getElementById('loginPosterImage');if(!img)return;const show=(src,remember=false)=>{if(!src)return;const done=()=>{img.classList.add('ready');if(remember){try{localStorage.setItem('veltro_login_poster',src)}catch{}}};img.onload=done;img.onerror=()=>{};img.src=src;if(img.complete&&img.naturalWidth>0)done();};try{const cached=localStorage.getItem('veltro_login_poster');if(cached&&String(cached).startsWith('data:image/'))show(cached);}catch{}try{const cfg=await window.desktop?.remoteLoginPoster?.();const remote=cfg?.login_image_data;if(remote&&String(remote).startsWith('data:image/'))show(remote,true);}catch{}})();"""
 if version_line not in renderer: raise RuntimeError('Could not find version binding')
 renderer=renderer.replace(version_line,version_line+'\n  '+poster_loader,1)
 
@@ -79,12 +82,15 @@ renderer_path.write_text(renderer,encoding='utf-8')
 
 styles=styles_path.read_text(encoding='utf-8')+r'''
 
-/* Stable packaged login poster v6: remote-first, no fallback flash */
-.exact-poster-art{position:relative!important;overflow:hidden!important;padding:0!important;background:#03101f!important;display:block!important}
+/* Stable packaged login poster v7: instant local paint + cached/remote overlay */
+.exact-poster-art{position:relative!important;overflow:hidden!important;padding:0!important;background:#03101f url('../assets/login_left_current.jpg') center center/cover no-repeat!important;display:block!important}
 .exact-poster-art::before,.exact-poster-art::after{content:none!important;display:none!important}
-.veltro-login-poster-img{position:absolute!important;inset:0!important;width:100%!important;height:100%!important;display:block!important;object-fit:cover!important;object-position:center center!important;z-index:1!important;opacity:0!important;visibility:hidden!important;background:#03101f!important}
+.veltro-login-poster-img{position:absolute!important;inset:0!important;width:100%!important;height:100%!important;display:block!important;object-fit:cover!important;object-position:center center!important;z-index:1!important;opacity:0!important;visibility:hidden!important;background:transparent!important;transition:none!important}
 .veltro-login-poster-img.ready{opacity:1!important;visibility:visible!important}
 .exact-poster-art .version{position:absolute!important;z-index:5!important;left:14px!important;bottom:10px!important;color:#fff!important;background:rgba(3,16,31,.72)!important;padding:3px 7px!important;border-radius:2px!important}
+.veltro-ref-card .user-icon::before,.veltro-ref-card .user-icon::after,.veltro-ref-card .lock-icon::before,.veltro-ref-card .lock-icon::after{content:none!important;display:none!important}
+.veltro-ref-card .field-icon{display:inline-flex!important;align-items:center!important;justify-content:center!important;width:30px!important;min-width:30px!important;height:30px!important;padding:0!important;margin:0 12px 0 0!important;font-family:"Segoe UI Emoji","Segoe UI Symbol",sans-serif!important;font-size:21px!important;line-height:1!important;background:transparent!important;border:0!important;box-shadow:none!important;filter:grayscale(1) saturate(0) brightness(1.72)!important;opacity:.86!important}
+.veltro-ref-card .user-icon,.veltro-ref-card .lock-icon{color:#d7dde4!important}
 '''
 styles_path.write_text(styles,encoding='utf-8')
 
@@ -137,9 +143,11 @@ pkg_path.write_text(json.dumps(pkg,ensure_ascii=False,indent=2),encoding='utf-8'
 
 if 'id="loginPosterImage"' not in renderer: raise RuntimeError('loginPosterImage missing')
 if "remoteLoginPoster?.()" not in renderer: raise RuntimeError('remoteLoginPoster renderer binding missing')
-if 'img.classList.add(\'ready\')' not in renderer: raise RuntimeError('poster ready-state binding missing')
+if "localStorage.getItem('veltro_login_poster')" not in renderer: raise RuntimeError('poster startup cache missing')
+if "background:#03101f url('../assets/login_left_current.jpg')" not in styles: raise RuntimeError('instant local poster background missing')
+if '&#128100;' not in renderer or '&#128274;' not in renderer: raise RuntimeError('requested login icons missing')
 if "chartAssetsBase?.()" not in renderer: raise RuntimeError('local chart asset loader missing')
 if "app:chart-assets-base" not in main: raise RuntimeError('chart asset IPC missing')
 if "chartAssetsBase:" not in preload: raise RuntimeError('chart asset preload bridge missing')
 if {'from':'node_modules/highcharts','to':'highcharts'} not in pkg['build']['extraResources']: raise RuntimeError('Highcharts extraResource missing')
-print(f'VELTRO {version} local Highcharts + remote-first poster patch verified: {actual_sha256}')
+print(f'VELTRO {version} login icons + instant poster + local Highcharts patch verified: {actual_sha256}')
