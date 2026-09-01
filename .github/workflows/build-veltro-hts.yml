@@ -18,6 +18,7 @@ on:
       - 'desktop/patch/trade_runtime_v31.py'
       - 'desktop/patch/login_v32.py'
       - 'desktop/patch/login_v33.py'
+      - 'desktop/patch/hsi_rollover_v34.py'
       - '.github/workflows/build-veltro-hts.yml'
 
 permissions:
@@ -133,6 +134,10 @@ jobs:
         shell: pwsh
         run: python desktop/patch/login_v33.py
 
+      - name: Apply HSI current-contract rollover guard
+        shell: pwsh
+        run: python desktop/patch/hsi_rollover_v34.py
+
       - name: Install dependencies
         working-directory: desktop/build
         run: npm install --no-audit --no-fund
@@ -176,7 +181,7 @@ jobs:
             desktop/build/dist/latest.yml \
             --target main --latest \
             --title "VELTRO HTS v${VERSION}" \
-            --notes "VELTRO HTS v1.0.33 login-screen correction. Keeps the requested monochrome person/lock login icons and restores the login poster presentation/loading behavior used before the v1.0.32 immediate-paint experiment. Existing member, balance, order, position, deposit/withdrawal, notice, notification, database, chart, market-data, margin, PnL, and updater behavior are unchanged."
+            --notes "VELTRO HTS v1.0.34 HSI contract-rollover correction. HSI LS historical/realtime server routes now resolve the displayed HSI alias to the current Hang Seng monthly contract automatically, and the chart no longer shows an unrelated generic fallback quote while waiting for LS HSI data. Existing member, balance, order, position, deposit/withdrawal, notice, notification, database, non-HSI chart, margin, PnL, login, and updater behavior are unchanged."
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
