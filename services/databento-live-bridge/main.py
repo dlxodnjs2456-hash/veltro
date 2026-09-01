@@ -1,4 +1,7 @@
 import asyncio
+import hashlib
+import hmac
+import json
 import os
 import time
 from typing import Any
@@ -18,7 +21,7 @@ SYMBOLS = {
 
 DATABENTO_API_KEY = os.environ["DATABENTO_API_KEY"].strip()
 SUPABASE_URL = os.environ["SUPABASE_URL"].rstrip("/")
-SUPABASE_SERVICE_ROLE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"].strip()
+INGEST_URL = f"{SUPABASE_URL}/functions/v1/databento-live-ingest"
 
 latest: dict[str, dict[str, Any]] = {}
 dirty: set[str] = set()
@@ -82,14 +85,18 @@ def on_record(record: Any) -> None:
     dirty.add(code)
 
 
-async def flush_loop() -> None:
-    headers = {
-        "apikey": SUPABASE_SERVICE_ROLE_KEY,
-        "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
+def _signed_headers(body: str) -> dict[str, str]:
+    ts = str(int(time.time() * 1000))
+    payload = f"{ts}.{body}".encode()
+    signature = hmac.new(DATABENTO_API_KEY.encode(), payload, hashlib.sha256).hexdigest()
+    return {
         "Content-Type": "application/json",
-        "Prefer": "resolution=merge-duplicates,return=minimal",
+        "x-veltro-ts": ts,
+        "x-veltro-signature": signature,
     }
-    url = f"{SUPABASE_URL}/rest/v1/market_live_quotes?on_conflict=code"
+
+
+async def flush_loop() -> None:
     async with httpx.AsyncClient(timeout=5.0) as client:
         while True:
             await asyncio.sleep(0.25)
@@ -99,8 +106,9 @@ async def flush_loop() -> None:
             rows = [latest[c] for c in codes if c in latest]
             if not rows:
                 continue
+            body = json.dumps(rows, separators=(",", ":"), ensure_ascii=False)
             try:
-                r = await client.post(url, headers=headers, json=rows)
+                r = await client.post(INGEST_URL, headers=_signed_headers(body), content=body.encode())
                 r.raise_for_status()
                 for c in codes:
                     dirty.discard(c)
