@@ -55,12 +55,10 @@ bars="const bars=(databentoOnly||lsHsiOnly)?normalizeBars(res?.bars):[];lastBars
 if bars not in renderer:
     raise RuntimeError('filtered bars anchor missing')
 
-# Keep the genuine quoteTimer as the owner of the actively-forming candle.
-# Remove only the periodic full historical redraw that can overwrite it.
-periodic_re=r"barTimer\s*=\s*setInterval\(\s*\(\)\s*=>\s*\{?\s*if\s*\(!document\.hidden\)\s*draw\(false\)\s*\}?\s*,\s*30000\s*\)\s*;?"
-renderer,n=re.subn(periodic_re,"barTimer=null;",renderer,count=1)
-if n==0 and 'barTimer=null;' not in renderer:
-    raise RuntimeError('HTS historical redraw timer state not recognized')
+# The live quote timer owns the actively-forming candle. Remove only a 30-second
+# barTimer history resync if one still exists after all previous compatibility patches.
+periodic_re=r"barTimer\s*=\s*setInterval\(.*?,\s*30000\s*\)\s*;?"
+renderer,n=re.subn(periodic_re,"barTimer=null;",renderer,count=1,flags=re.S)
 
 renderer_path.write_text(renderer,encoding='utf-8')
 check=renderer_path.read_text(encoding='utf-8')
@@ -73,13 +71,14 @@ for needle in [
     'lsHsiOnly',
     'applyChartOnlyLiveQuote',
     'b={t:bt,o:v,h:v,l:v,c:v,v:0}',
-    'barTimer=null;',
     'currentK===5?500:currentK===3?1000:3000'
 ]:
     if needle not in check:
         raise RuntimeError('missing BBO/chart guard: '+needle)
 if not re.search(r"quoteTimer\s*=\s*setInterval",check):
     raise RuntimeError('realtime quote timer missing')
+if re.search(r"barTimer\s*=\s*setInterval\(.*?,\s*30000\s*\)",check,re.S):
+    raise RuntimeError('30-second historical redraw still active')
 for expected in ['6847.5','13695','34237.5','8559.4']:
     if not re.search(rf"tickValue\s*:\s*{re.escape(expected)}(?=[,}}\s])",check):
         raise RuntimeError('contract PnL benchmark missing: '+expected)
@@ -94,4 +93,4 @@ checks=[
 for got,expected,name in checks:
     if round(got)!=expected:
         raise RuntimeError(f'{name} benchmark regression mismatch: {got} != {expected}')
-print('VELTRO BBO/PnL preserved; bounded 15m/1h history and genuine realtime candle timer retained')
+print('VELTRO BBO/PnL preserved; bounded 15m/1h history and realtime candle persistence retained')
