@@ -1,0 +1,87 @@
+name: Fix 15m 1h historical chart routing once
+
+on:
+  push:
+    paths:
+      - '.github/workflows/fix-chart-history-v7.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore native 15m and 1h historical routing
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          # WTS/MTS: stop forcing 15m/1h requests back to 1m.
+          p=Path('wts-runtime-v6.js')
+          s=p.read_text(encoding='utf-8')
+          block="""    if(url===FEED&&act==='kline'&&(Number(body?.kType)===3||Number(body?.kType)===5)){\n      const target=Number(body.kType)===3?15:60;\n      const r=await baseApi(url,{...body,kType:1,limit:3000},auth,retry);\n      return {...r,bars:aggregateKlineBars(r?.bars,target)};\n    }\n"""
+          if block not in s:
+              raise SystemExit('WTS 15m/1h override block not found')
+          s=s.replace(block,'',1)
+          p.write_text(s,encoding='utf-8')
+
+          # Cache-bust WTS/MTS runtime loader only.
+          p=Path('index.html')
+          s=p.read_text(encoding='utf-8')
+          s,n=re.subn(r'wts-runtime-v6\.js\?v=[^"\']+', 'wts-runtime-v6.js?v=20260901-5', s, count=1)
+          if n!=1:
+              raise SystemExit('runtime loader not found')
+          p.write_text(s,encoding='utf-8')
+
+          # HTS: keep native backend kType so 15m/1h receive deep historical bars.
+          p=Path('desktop/patch/bbo_v44.py')
+          s=p.read_text(encoding='utf-8')
+          old="req_new=\"window.desktop.getMarketKline({...ref,kType:((currentK===3||currentK===5)?1:currentK),limit:3000})\""
+          new="req_new=\"window.desktop.getMarketKline({...ref,kType:currentK,limit:3000})\""
+          if old not in s:
+              raise SystemExit('HTS forced 1m request override not found')
+          s=s.replace(old,new,1)
+          old2="bars_new=\"let bars=(databentoOnly||lsHsiOnly)?normalizeBars(res?.bars):[];if(!lsHsi&&currentK===3)bars=aggregateTfBars(bars,15);else if(!lsHsi&&currentK===5)bars=aggregateTfBars(bars,60);lastBars=bars;\""
+          new2="bars_new=\"const bars=(databentoOnly||lsHsiOnly)?normalizeBars(res?.bars):[];lastBars=bars;\""
+          if old2 not in s:
+              raise SystemExit('HTS local aggregation override not found')
+          s=s.replace(old2,new2,1)
+          for needle in [
+              "    'aggregateTfBars(bars,15)',\n",
+              "    'aggregateTfBars(bars,60)',\n",
+              "    '!lsHsi&&currentK===3',\n",
+              "    '!lsHsi&&currentK===5',\n",
+          ]:
+              s=s.replace(needle,'')
+          s=s.replace("print('VELTRO BBO + contract PnL + non-HSI 15m/1h Databento aggregation applied; received prices unchanged')",
+                      "print('VELTRO BBO + contract PnL preserved; 15m/1h use native backend historical aggregation')")
+          s=s.replace('# v1.0.48 retry trigger; no unrelated runtime behavior changed.', '# v1.0.49 historical timeframe routing; no unrelated runtime behavior changed.')
+          p.write_text(s,encoding='utf-8')
+
+          Path('desktop/RELEASE').write_text('1.0.49\n',encoding='utf-8')
+
+          # Guards: old forced-1m behavior must be gone from active WTS runtime and HTS patch.
+          wr=Path('wts-runtime-v6.js').read_text(encoding='utf-8')
+          hp=Path('desktop/patch/bbo_v44.py').read_text(encoding='utf-8')
+          idx=Path('index.html').read_text(encoding='utf-8')
+          if "baseApi(url,{...body,kType:1,limit:3000}" in wr:
+              raise SystemExit('WTS forced 1m override still present')
+          if "kType:((currentK===3||currentK===5)?1:currentK)" in hp:
+              raise SystemExit('HTS forced 1m override still present')
+          if 'wts-runtime-v6.js?v=20260901-5' not in idx:
+              raise SystemExit('WTS runtime cache bust missing')
+          print('Native 15m/1h historical routing restored for HTS/WTS/MTS')
+          PY
+
+          node --check wts-runtime-v6.js
+          git diff --check
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add wts-runtime-v6.js index.html desktop/patch/bbo_v44.py desktop/RELEASE
+          git commit -m "Restore deep 15m and 1h historical candles"
+          git push
