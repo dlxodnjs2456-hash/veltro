@@ -59,8 +59,9 @@ build_cfg=pkg.setdefault('build',{})
 build_cfg['publish']=[{'provider':'github','owner':'dlxodnjs2456-hash','repo':'veltro','releaseType':'release'}]
 pkg_path.write_text(json.dumps(pkg,ensure_ascii=False,indent=2),encoding='utf-8')
 
-# v1.0.42: chart-only live rendering. Never mutate the existing trade/orderbook state.
-# Historical bars stay Databento; the forming candle uses the quote response only inside the chart window.
+# v1.0.43: chart is read-only with respect to HTS trading/orderbook state.
+# Historical candles come from the normal getMarketKline path. The forming candle
+# uses only actual quote ticks. No previous-close bridging or artificial price adjustment.
 renderer=renderer_path.read_text(encoding='utf-8')
 
 helper_anchor="  async function draw(resetView=false){"
@@ -71,13 +72,17 @@ helper=r'''  function applyChartOnlyLiveQuote(qr){
     lastEl.textContent=fmt(v,dec(sy));
     if(!candleSeries)return true;
     const bucket=({1:1,2:5,3:15,4:30,5:60}[currentK]||1)*60000;
-    const bt=Math.floor(Date.now()/bucket)*bucket;
+    let ts=Number(qr.quote.t);
+    if(!Number.isFinite(ts)||ts<=0)ts=Date.now();
+    else if(ts<1e12)ts*=1000;
+    const bt=Math.floor(ts/bucket)*bucket;
     let prev=lastBars.length?{...lastBars[lastBars.length-1]}:null;
     const prevBt=prev?Math.floor(Number(prev.t)/bucket)*bucket:null;
     let b;
     if(!prev||prevBt!==bt){
-      const open=prev&&Number.isFinite(Number(prev.c))?Number(prev.c):v;
-      b={t:bt,o:open,h:Math.max(open,v),l:Math.min(open,v),c:v,v:0};
+      // The first actual tick observed in a new bucket is the candle open.
+      // Never bridge from the previous historical close.
+      b={t:bt,o:v,h:v,l:v,c:v,v:0};
       lastBars.push(b);
     }else{
       b=prev;
@@ -96,12 +101,12 @@ helper=r'''  function applyChartOnlyLiveQuote(qr){
     return true;
   }
 '''
-if helper_anchor not in renderer: raise RuntimeError('v1.0.42 draw anchor missing')
+if helper_anchor not in renderer: raise RuntimeError('v1.0.43 draw anchor missing')
 renderer=renderer.replace(helper_anchor,helper+helper_anchor,1)
 
 old_after="buildChart(bars);showLastBar(bars[bars.length-1]);if(resetView)chart?.timeScale()?.fitContent();"
 new_after="buildChart(bars);if(!applyChartOnlyLiveQuote(qr))showLastBar(bars[bars.length-1]);if(resetView)chart?.timeScale()?.fitContent();"
-if old_after not in renderer: raise RuntimeError('v1.0.42 historical overwrite anchor missing')
+if old_after not in renderer: raise RuntimeError('v1.0.43 historical display anchor missing')
 renderer=renderer.replace(old_after,new_after,1)
 
 refresh=r'''  async function refreshQuote(){
@@ -116,7 +121,7 @@ refresh=r'''  async function refreshQuote(){
   try{await initMarketData();'''
 pattern=r"  async function refreshQuote\(\)\{if\(isHsiCode\(\)\)return;.*?\n  try\{await initMarketData\(\);"
 renderer,n=re.subn(pattern,refresh,renderer,count=1,flags=re.S)
-if n!=1: raise RuntimeError('v1.0.42 live refresh anchor missing')
+if n!=1: raise RuntimeError('v1.0.43 live refresh anchor missing')
 
 renderer_path.write_text(renderer,encoding='utf-8')
 
@@ -126,8 +131,8 @@ for required in ['setFeedURL','checkForUpdates','autoInstallOnAppQuit','quitAndI
     if required not in final_main: raise RuntimeError('updater runtime missing: '+required)
 if pkg.get('build',{}).get('publish',[{}])[0].get('provider')!='github': raise RuntimeError('github publish provider missing')
 final_renderer=renderer_path.read_text(encoding='utf-8')
-for required in ['applyChartOnlyLiveQuote','if(!applyChartOnlyLiveQuote(qr))showLastBar','applyChartOnlyLiveQuote(qr);']:
-    if required not in final_renderer: raise RuntimeError('v1.0.42 chart-only live fix missing: '+required)
-if 'applyMarketQuoteToState(currentCode,qr,false)' in final_renderer:
-    raise RuntimeError('v1.0.41 chart-to-orderbook state mutation still present')
-print('VELTRO v1.0.42 chart isolated from trade/orderbook state and verified')
+for required in ['window.desktop.getMarketKline({...ref,kType:currentK,limit:3000})','applyChartOnlyLiveQuote','b={t:bt,o:v,h:v,l:v,c:v,v:0}','else if(ts<1e12)ts*=1000']:
+    if required not in final_renderer: raise RuntimeError('v1.0.43 chart runtime missing: '+required)
+for forbidden in ['databento-kline-test','quoteTimer=null','applyMarketQuoteToState(currentCode,qr,false)']:
+    if forbidden in final_renderer: raise RuntimeError('forbidden stale HTS chart behavior remains: '+forbidden)
+print('VELTRO v1.0.43 production chart verified: real kline path, live timer, no price bridging, no orderbook mutation')
