@@ -1,0 +1,43 @@
+name: Apply HTS v1.0.37 once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apply-hts-v37.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch HTS workflow and version
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('.github/workflows/build-veltro-hts.yml')
+          s=p.read_text(encoding='utf-8')
+          path_line="      - 'desktop/patch/signup_v37.py'"
+          anchor="      - 'desktop/patch/hsi_maintenance_v36.py'"
+          if path_line not in s:
+              if anchor not in s: raise SystemExit('v36 path anchor missing')
+              s=s.replace(anchor,anchor+'\n'+path_line,1)
+          step="""      - name: Add HTS signup entry\n        shell: pwsh\n        run: python desktop/patch/signup_v37.py\n\n"""
+          step_anchor="""      - name: Restore HSI as maintenance-only instrument\n        shell: pwsh\n        run: python desktop/patch/hsi_maintenance_v36.py\n\n"""
+          if 'python desktop/patch/signup_v37.py' not in s:
+              if step_anchor not in s: raise SystemExit('v36 step anchor missing')
+              s=s.replace(step_anchor,step_anchor+step,1)
+          s=s.replace('VELTRO HTS v1.0.36 restores HSI/Hang Seng to the visible HTS symbol lists but temporarily blocks selection. Selecting HSI in the chart or instrument controls shows \'현재 점검중인 종목입니다.\' and does not start HSI market-data or trading selection. Existing member, balance, order, position, deposit/withdrawal, notice, notification, database, other market-data, margin, PnL, login, and updater behavior are unchanged.','VELTRO HTS v1.0.37 adds a 회원가입 button on the login screen that opens the existing VELTRO signup flow. HSI remains maintenance-only. Existing member, balance, order, position, deposit/withdrawal, notice, notification, database, market-data, margin, PnL, login, and updater behavior are unchanged.')
+          p.write_text(s,encoding='utf-8')
+          Path('desktop/RELEASE').write_text('1.0.37\n',encoding='utf-8')
+          PY
+      - name: Commit HTS v1.0.37 configuration
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows/build-veltro-hts.yml desktop/RELEASE
+          git commit -m 'Release VELTRO HTS v1.0.37 signup entry'
+          git push
