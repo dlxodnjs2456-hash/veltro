@@ -1,0 +1,16 @@
+services:
+  - type: worker
+    name: veltro-databento-live
+    runtime: docker
+    repo: https://github.com/dlxodnjs2456-hash/veltro
+    branch: main
+    rootDir: services/databento-live-bridge
+    dockerfilePath: ./Dockerfile
+    autoDeploy: true
+    envVars:
+      - key: DATABENTO_API_KEY
+        sync: false
+      - key: SUPABASE_URL
+        value: https://mzjkvakigwtlibwlslhq.supabase.co
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
