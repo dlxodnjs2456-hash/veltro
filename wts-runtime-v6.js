@@ -9,6 +9,13 @@
   const isHsi=i=>String(i?.code||'').toUpperCase()==='HSI';
   const hsiContract=INS.find(x=>String(x?.code||'').toUpperCase()==='HSI');if(hsiContract){hsiContract.symbol='HSIU26';hsiContract.month='202609'}
 
+  function aggregateKlineBars(raw,mins){
+    const src=(Array.isArray(raw)?raw:[]).map(b=>({t:Number(b.t??b.timestamp),o:Number(b.o??b.open),h:Number(b.h??b.high),l:Number(b.l??b.low),c:Number(b.c??b.close),v:Math.max(0,Number(b.v??b.volume??0))})).filter(b=>[b.t,b.o,b.h,b.l,b.c].every(Number.isFinite)&&b.t>0).map(b=>({...b,t:b.t<1e12?b.t*1000:b.t})).sort((a,b)=>a.t-b.t);
+    const ms=mins*60000,out=[];
+    for(const x of src){const bt=Math.floor(x.t/ms)*ms,last=out[out.length-1];if(!last||last.t!==bt)out.push({t:bt,o:x.o,h:x.h,l:x.l,c:x.c,v:x.v});else{last.h=Math.max(last.h,x.h);last.l=Math.min(last.l,x.l);last.c=x.c;last.v+=x.v}}
+    return out;
+  }
+
   function ensureConn(){let el=document.querySelector('#veltroConnState');if(el)return el;el=document.createElement('div');el.id='veltroConnState';el.style.cssText='position:fixed;right:10px;top:58px;z-index:80;padding:5px 8px;border-radius:6px;font:700 10px Arial,"Malgun Gothic",sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.12);display:none;pointer-events:none';document.body.appendChild(el);return el}
   function paintConn(){const el=ensureConn();if(!token){el.style.display='none';return}const metas=[...quoteMetaByCode.values()],newest=metas.length?Math.max(...metas.map(x=>Number(x.at)||0)):0,age=newest?Date.now()-newest:Infinity;if(!navigator.onLine){el.textContent='네트워크 연결 없음';el.style.background='#fff1f0';el.style.color='#b42318';el.style.display='block';return}if(age>15000){el.textContent='시세 연결 지연 · 마지막 값 유지';el.style.background='#fff7e6';el.style.color='#b54708';el.style.display='block';return}el.style.display='none'}
 
@@ -21,6 +28,11 @@
       if(quoteInflight.has(code))return quoteInflight.get(code);
       const p=baseApi(url,body,auth,retry).then(v=>{const q=v?.quote||v?.data||v,px=validPx(q?.ld??q?.last??q?.price);if(px!=null){quoteCache.set(code,{at:Date.now(),value:v});quoteMetaByCode.set(code,{at:Date.now(),marketAt:Number(q?.t)||Date.now()});paintConn()}return v}).catch(e=>{const stale=quoteCache.get(code);paintConn();if(stale?.value)return stale.value;throw e}).finally(()=>quoteInflight.delete(code));
       quoteInflight.set(code,p);return p;
+    }
+    if(url===FEED&&act==='kline'&&(Number(body?.kType)===3||Number(body?.kType)===5)){
+      const target=Number(body.kType)===3?15:60;
+      const r=await baseApi(url,{...body,kType:1,limit:3000},auth,retry);
+      return {...r,bars:aggregateKlineBars(r?.bars,target)};
     }
     if(url===TRADING&&['submit_order','close_position','cancel_order','set_overnight'].includes(act)){
       const key=act+'|'+String(body?.position_id??body?.order_id??body?.symbol??'')+'|'+String(body?.side??'')+'|'+String(body?.order_type??'')+'|'+String(body?.qty??'')+'|'+String(body?.price??'');
