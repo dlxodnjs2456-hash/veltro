@@ -80,8 +80,6 @@ helper=r'''  function applyChartOnlyLiveQuote(qr){
     const prevBt=prev?Math.floor(Number(prev.t)/bucket)*bucket:null;
     let b;
     if(!prev||prevBt!==bt){
-      // The first actual tick observed in a new bucket is the candle open.
-      // Never bridge from the previous historical close.
       b={t:bt,o:v,h:v,l:v,c:v,v:0};
       lastBars.push(b);
     }else{
@@ -131,8 +129,8 @@ for required in ['setFeedURL','checkForUpdates','autoInstallOnAppQuit','quitAndI
     if required not in final_main: raise RuntimeError('updater runtime missing: '+required)
 if pkg.get('build',{}).get('publish',[{}])[0].get('provider')!='github': raise RuntimeError('github publish provider missing')
 final_renderer=renderer_path.read_text(encoding='utf-8')
-for required in ['window.desktop.getMarketKline({...ref,kType:currentK,limit:3000})','applyChartOnlyLiveQuote','b={t:bt,o:v,h:v,l:v,c:v,v:0}','else if(ts<1e12)ts*=1000']:
+for required in ['window.desktop.getMarketKline({...ref,kType:currentK,limit:3000})','applyChartOnlyLiveQuote','b={t:bt,o:v,h:v,l:v,c:v,v:0}','else if(ts<1e12)ts*=1000','quoteTimer=setInterval']:
     if required not in final_renderer: raise RuntimeError('v1.0.43 chart runtime missing: '+required)
-for forbidden in ['databento-kline-test','quoteTimer=null','applyMarketQuoteToState(currentCode,qr,false)']:
+for forbidden in ['databento-kline-test','applyMarketQuoteToState(currentCode,qr,false)']:
     if forbidden in final_renderer: raise RuntimeError('forbidden stale HTS chart behavior remains: '+forbidden)
 print('VELTRO v1.0.43 production chart verified: real kline path, live timer, no price bridging, no orderbook mutation')
