@@ -45,9 +45,11 @@ if 'function aggregateTfBars(src,mins)' not in renderer:
         raise RuntimeError('chart draw anchor missing for timeframe compatibility')
     renderer=renderer.replace(draw_anchor,agg_helper+draw_anchor,1)
 
-req="window.desktop.getMarketKline({...ref,kType:currentK,limit:3000})"
-if req not in renderer:
+req_old="window.desktop.getMarketKline({...ref,kType:currentK,limit:3000})"
+req_new="window.desktop.getMarketKline({...ref,kType:currentK,limit:(currentK===5?500:currentK===3?1000:3000)})"
+if req_old not in renderer:
     raise RuntimeError('production kline request missing')
+renderer=renderer.replace(req_old,req_new,1)
 
 bars="const bars=(databentoOnly||lsHsiOnly)?normalizeBars(res?.bars):[];lastBars=bars;"
 if bars not in renderer:
@@ -70,12 +72,14 @@ for needle in [
     'Math.abs(p.last-ladderCenter)>=tick*2',
     'lsHsiOnly',
     'applyChartOnlyLiveQuote',
-    'quoteTimer=setInterval',
     'b={t:bt,o:v,h:v,l:v,c:v,v:0}',
-    'barTimer=null;'
+    'barTimer=null;',
+    'currentK===5?500:currentK===3?1000:3000'
 ]:
     if needle not in check:
         raise RuntimeError('missing BBO/chart guard: '+needle)
+if not re.search(r"quoteTimer\s*=\s*setInterval",check):
+    raise RuntimeError('realtime quote timer missing')
 for expected in ['6847.5','13695','34237.5','8559.4']:
     if not re.search(rf"tickValue\s*:\s*{re.escape(expected)}(?=[,}}\s])",check):
         raise RuntimeError('contract PnL benchmark missing: '+expected)
@@ -90,4 +94,4 @@ checks=[
 for got,expected,name in checks:
     if round(got)!=expected:
         raise RuntimeError(f'{name} benchmark regression mismatch: {got} != {expected}')
-print('VELTRO BBO/PnL preserved; genuine realtime candle timer retained without periodic history overwrite')
+print('VELTRO BBO/PnL preserved; bounded 15m/1h history and genuine realtime candle timer retained')
