@@ -36,11 +36,31 @@ for symbol,(old_value,new_value) in benchmarks.items():
     pattern=rf"({re.escape(symbol)}[^\n\r]{{0,300}}?tickValue\s*:\s*){re.escape(str(old_value))}(?:\.0+)?(?=[,}}\s])"
     renderer,count=re.subn(pattern,rf"\g<1>{new_value}",renderer,count=1)
     if count!=1:
-        # Safe fallback only when the old tick value is unique enough for the known build base.
         pattern=rf"(tickValue\s*:\s*){re.escape(str(old_value))}(?:\.0+)?(?=[,}}\s])"
         renderer,count=re.subn(pattern,rf"\g<1>{new_value}",renderer,count=1)
     if count!=1:
         raise RuntimeError(f'{symbol} tickValue {old_value} anchor missing; refusing broad PnL modification')
+
+# HTS 15m/1h recovery: use the same Databento 1-minute OHLC stream and aggregate
+# it locally. No synthetic prices or scaling are introduced.
+agg_helper="""  function aggregateTfBars(src,mins){\n    const ms=mins*60000,out=[];\n    for(const x of src){\n      const bt=Math.floor(Number(x.t)/ms)*ms,last=out[out.length-1];\n      if(!last||last.t!==bt)out.push({t:bt,o:x.o,h:x.h,l:x.l,c:x.c,v:Number(x.v||0)});\n      else{last.h=Math.max(last.h,x.h);last.l=Math.min(last.l,x.l);last.c=x.c;last.v+=Number(x.v||0);}\n    }\n    return out;\n  }\n"""
+draw_anchor="  async function draw(resetView=false){"
+if agg_helper.strip() not in renderer:
+    if draw_anchor not in renderer:
+        raise RuntimeError('chart draw anchor missing for 15m/1h aggregation')
+    renderer=renderer.replace(draw_anchor,agg_helper+draw_anchor,1)
+
+req_old="window.desktop.getMarketKline({...ref,kType:currentK,limit:3000})"
+req_new="window.desktop.getMarketKline({...ref,kType:((currentK===3||currentK===5)?1:currentK),limit:((currentK===3||currentK===5)?3000:3000)})"
+if req_old not in renderer:
+    raise RuntimeError('production kline request anchor missing for 15m/1h recovery')
+renderer=renderer.replace(req_old,req_new,1)
+
+bars_old="const bars=normalizeBars(res?.bars);lastBars=bars;"
+bars_new="let bars=normalizeBars(res?.bars);if(currentK===3)bars=aggregateTfBars(bars,15);else if(currentK===5)bars=aggregateTfBars(bars,60);lastBars=bars;"
+if bars_old not in renderer:
+    raise RuntimeError('normalized bars anchor missing for 15m/1h recovery')
+renderer=renderer.replace(bars_old,bars_new,1)
 
 renderer_path.write_text(renderer,encoding='utf-8')
 check=renderer_path.read_text(encoding='utf-8')
@@ -51,10 +71,13 @@ for needle in [
     '?roundToTick(bestAsk,s):',
     '?roundToTick(bestBid,s):',
     'window.__veltroLadderCenter',
-    'Math.abs(p.last-ladderCenter)>=tick*2'
+    'Math.abs(p.last-ladderCenter)>=tick*2',
+    'aggregateTfBars(bars,15)',
+    'aggregateTfBars(bars,60)',
+    'currentK===3||currentK===5'
 ]:
     if needle not in check:
-        raise RuntimeError('missing BBO/ladder guard: '+needle)
+        raise RuntimeError('missing BBO/chart guard: '+needle)
 for expected in ['6847.5','13695','34237.5','8559.4']:
     if not re.search(rf"tickValue\s*:\s*{re.escape(expected)}(?=[,}}\s])",check):
         raise RuntimeError('contract PnL benchmark missing: '+expected)
@@ -69,5 +92,5 @@ checks=[
 for got,expected,name in checks:
     if round(got)!=expected:
         raise RuntimeError(f'{name} benchmark regression mismatch: {got} != {expected}')
-print('VELTRO real BBO + supplied contract PnL benchmarks applied; received prices are not modified')
-# v1.0.47 release trigger; no other runtime behavior changed.
+print('VELTRO real BBO + contract PnL + 15m/1h Databento aggregation applied; prices are not modified')
+# v1.0.48 release trigger; no unrelated runtime behavior changed.
