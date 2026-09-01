@@ -1,7 +1,7 @@
 {
-  "latestVersion": "1.0.4",
+  "latestVersion": "1.0.5",
   "minVersion": "1.0.4",
-  "apkUrl": "https://github.com/dlxodnjs2456-hash/veltro/releases/download/android-v1.0.4/VELTRO_Mobile_v1.0.4.apk",
-  "message": "VELTRO MTS 안정화 업데이트가 있습니다.",
+  "apkUrl": "https://github.com/dlxodnjs2456-hash/veltro/releases/download/android-v1.0.5/VELTRO_Mobile_v1.0.5.apk",
+  "message": "VELTRO MTS 입력창 키패드 수정 업데이트가 있습니다.",
   "mandatory": false
 }
