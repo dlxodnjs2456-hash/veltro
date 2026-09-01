@@ -30,10 +30,10 @@ const AUTH=U+'/functions/v1/auth-api',TRADING=U+'/functions/v1/trading-api',ACCO
 const INS=[
 {symbol:'NQU26',code:'NQ',name:'E-mini Nasdaq100',exchange:'CME',month:'202609',tick:.25,tickValue:6847.5},
 {symbol:'ESU26',code:'ES',name:'E-mini S&P 500',exchange:'CME',month:'202609',tick:.25,tickValue:17300},
-{symbol:'CLV26',code:'CL',name:'Crude Oil',exchange:'NYMEX',month:'202610',tick:.01,tickValue:13840},
-{symbol:'GCZ26',code:'GC',name:'Gold',exchange:'COMEX',month:'202612',tick:.1,tickValue:13840},
-{symbol:'SIU26',code:'SI',name:'Silver',exchange:'COMEX',month:'202609',tick:.005,tickValue:34600},
-{symbol:'6JU26',code:'6J',name:'Japanese Yen',exchange:'CME',month:'202609',tick:.5,tickValue:8650},
+{symbol:'CLV26',code:'CL',name:'Crude Oil',exchange:'NYMEX',month:'202610',tick:.01,tickValue:13695},
+{symbol:'GCZ26',code:'GC',name:'Gold',exchange:'COMEX',month:'202612',tick:.1,tickValue:13695},
+{symbol:'SIU26',code:'SI',name:'Silver',exchange:'COMEX',month:'202609',tick:.005,tickValue:34237.5},
+{symbol:'6JU26',code:'6J',name:'Japanese Yen',exchange:'CME',month:'202609',tick:.5,tickValue:8559.4},
 {symbol:'HSIQ26',code:'HSI',name:'Hang Seng Index',exchange:'HKEX',month:'202608',tick:1,tickValue:8831}
 ];
 let token='',refreshToken='',profile=null,trading={account:null,positions:[],orders:[],fills:[]},dash={profile:null,account:null,deposits:[],withdrawals:[],notifications:[],notices:[],inquiries:[]},cur=INS[0],quote=null,page='trade',tab='quote',moneyTab='bank',chart=null,tf=1;
