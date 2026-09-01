@@ -175,4 +175,5 @@ $('#loginBtn').onclick=async()=>{try{$('#loginMsg').textContent='';const r=await
 $$('[data-page]').forEach(b=>b.onclick=()=>setPage(b.dataset.page));$('#tradeToggle').onclick=()=>{page='trade';renderAll()};$('#logout').onclick=logout;$('#mLogout').onclick=logout;$('#drawerBtn').onclick=()=>{$('#drawer').classList.remove('hidden');$('#mask').classList.remove('hidden')};$('#mask').onclick=closeDrawer;$('#bell').onclick=()=>setPage('alerts');$('#mTrade').onclick=()=>{page='trade';renderAll();closeDrawer()};$$('[data-morder]').forEach(b=>b.onclick=()=>mobileOrder(b.dataset.morder));$$('#mTabs button').forEach(b=>b.onclick=()=>{tab=b.dataset.tab;renderAll()});window.addEventListener('resize',()=>{if(token)renderAll()});document.addEventListener('visibilitychange',()=>{if(!document.hidden&&token){loadQuote().then(()=>refreshLiveTrade()).catch(()=>{});}});restoreSession();
 </script>
 <script src="/wts-hotfix-v2.js?v=20260901-2"></script>
+<script src="/wts-chart-v3.js?v=20260901-1"></script>
 </body></html>
