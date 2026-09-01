@@ -37,9 +37,9 @@ jobs:
 
       - name: Verify Android version
         run: |
-          grep "versionCode 4" mobile/android/app/build.gradle
-          grep "versionName '1.0.3'" mobile/android/app/build.gradle
-          grep 'VELTRO-Android/1.0.3' mobile/android/app/src/main/java/kr/co/veltro/mobile/MainActivity.java
+          grep "versionCode 5" mobile/android/app/build.gradle
+          grep "versionName '1.0.4'" mobile/android/app/build.gradle
+          grep 'VELTRO-Android/1.0.4' mobile/android/app/src/main/java/kr/co/veltro/mobile/MainActivity.java
 
       - name: Build APK
         working-directory: mobile/android
@@ -48,21 +48,21 @@ jobs:
       - name: Prepare APK
         run: |
           mkdir -p mobile/android/dist
-          cp mobile/android/app/build/outputs/apk/debug/app-debug.apk mobile/android/dist/VELTRO_Mobile_v1.0.3.apk
+          cp mobile/android/app/build/outputs/apk/debug/app-debug.apk mobile/android/dist/VELTRO_Mobile_v1.0.4.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: VELTRO_Mobile_v1.0.3
-          path: mobile/android/dist/VELTRO_Mobile_v1.0.3.apk
+          name: VELTRO_Mobile_v1.0.4
+          path: mobile/android/dist/VELTRO_Mobile_v1.0.4.apk
           if-no-files-found: error
 
       - name: Publish Android test release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release delete android-v1.0.3 --cleanup-tag -y || true
-          gh release create android-v1.0.3 \
-            mobile/android/dist/VELTRO_Mobile_v1.0.3.apk \
-            --title 'VELTRO Android v1.0.3' \
-            --notes 'Stability release for the shared WTS/MTS runtime: improved WebView resume/reconnect behavior, fresh app entry URL, safer rendering, and network retry handling. Trading, member, balance, position, order, deposit/withdrawal and database semantics are unchanged.'
+          gh release delete android-v1.0.4 --cleanup-tag -y || true
+          gh release create android-v1.0.4 \
+            mobile/android/dist/VELTRO_Mobile_v1.0.4.apk \
+            --title 'VELTRO Android v1.0.4' \
+            --notes 'Network and update reliability release. Adds native connectivity monitoring, automatic reconnect signaling, in-app update checks, correct download filenames, and keeps the shared WTS/MTS trading semantics unchanged.'
