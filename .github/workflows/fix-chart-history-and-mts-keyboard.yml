@@ -1,0 +1,92 @@
+name: Fix chart history and MTS keyboard once
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/fix-chart-history-and-mts-keyboard.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply focused fixes
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          # WTS/MTS chart: do not request 3000 aggregated 15m/60m candles.
+          p=Path('wts-chart-v3.js')
+          s=p.read_text()
+          old="const r=await api(FEED,{action:'kline',code,kType:Number(tf)||1,limit:3000});"
+          new="const historyLimit=Number(tf)===5?500:Number(tf)===3?1000:3000;const r=await api(FEED,{action:'kline',code,kType:Number(tf)||1,limit:historyLimit});"
+          if old not in s: raise SystemExit('wts chart request anchor missing')
+          p.write_text(s.replace(old,new,1))
+
+          # Bust browser/WebView cache for the changed chart runtime.
+          p=Path('index.html')
+          s=p.read_text()
+          s=s.replace('/wts-chart-v3.js?v=20260901-2','/wts-chart-v3.js?v=20260901-3')
+          p.write_text(s)
+
+          # HTS chart: same bounded historical request on 15m/1h only.
+          p=Path('desktop/patch/bbo_v44.py')
+          s=p.read_text()
+          old='req_new="window.desktop.getMarketKline({...ref,kType:currentK,limit:3000})"'
+          new='req_new="window.desktop.getMarketKline({...ref,kType:currentK,limit:(currentK===5?500:currentK===3?1000:3000)})"'
+          if old not in s: raise SystemExit('HTS kline request patch anchor missing')
+          p.write_text(s.replace(old,new,1))
+
+          # Android MTS: restore normal editable WebView focus and soft keyboard resizing.
+          p=Path('mobile/android/app/src/main/java/kr/co/veltro/mobile/MainActivity.java')
+          s=p.read_text()
+          s=s.replace('import android.view.View;','import android.view.View;\nimport android.view.WindowManager;')
+          s=s.replace('private static final String APP_VERSION = "1.0.4";','private static final String APP_VERSION = "1.0.5";')
+          s=s.replace('private static final String START_URL = "https://veltro-n8v3.vercel.app/?app=mts&v=104";','private static final String START_URL = "https://veltro-n8v3.vercel.app/?app=mts&v=105";')
+          s=s.replace('private static final String VERSION_URL = "https://veltro-n8v3.vercel.app/mobile/version.json?v=104";','private static final String VERSION_URL = "https://veltro-n8v3.vercel.app/mobile/version.json?v=105";')
+          s=s.replace('getWindow().setNavigationBarColor(Color.rgb(4, 10, 24));','getWindow().setNavigationBarColor(Color.rgb(4, 10, 24));\n        getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);')
+          s=s.replace('webView.setVerticalScrollBarEnabled(false);','webView.setVerticalScrollBarEnabled(false);\n        webView.setFocusable(true);\n        webView.setFocusableInTouchMode(true);\n        webView.setOnTouchListener((v, event) -> { if (!v.hasFocus()) v.requestFocus(); return false; });')
+          s=s.replace('VELTRO-Android/1.0.4','VELTRO-Android/1.0.5')
+          p.write_text(s)
+
+          p=Path('mobile/android/app/src/main/AndroidManifest.xml')
+          s=p.read_text()
+          old='android:screenOrientation="portrait">'
+          new='android:screenOrientation="portrait"\n            android:windowSoftInputMode="adjustResize|stateHidden">'
+          if old not in s: raise SystemExit('manifest activity anchor missing')
+          p.write_text(s.replace(old,new,1))
+
+          # Android build/release workflow to v1.0.5.
+          p=Path('.github/workflows/build-veltro-android.yml')
+          s=p.read_text()
+          for a,b in [('versionCode 5','versionCode 6'),("versionName '1.0.4'","versionName '1.0.5'"),('VELTRO-Android/1.0.4','VELTRO-Android/1.0.5'),('VELTRO_Mobile_v1.0.4.apk','VELTRO_Mobile_v1.0.5.apk'),('VELTRO_Mobile_v1.0.4','VELTRO_Mobile_v1.0.5'),('android-v1.0.4','android-v1.0.5'),('VELTRO Android v1.0.4','VELTRO Android v1.0.5')]:
+              s=s.replace(a,b)
+          s=s.replace("--notes 'Network and update reliability release. Adds native connectivity monitoring, automatic reconnect signaling, in-app update checks, correct download filenames, and keeps the shared WTS/MTS trading semantics unchanged.'","--notes 'MTS input fix. Restores Android WebView soft keyboard/focus behavior for deposit and inquiry text fields while preserving shared WTS/MTS trading semantics.'")
+          p.write_text(s)
+
+          # Version metadata used by the installed app.
+          p=Path('mobile/version.json')
+          s=p.read_text()
+          s=s.replace('"latestVersion": "1.0.4"','"latestVersion": "1.0.5"')
+          s=s.replace('"minVersion": "1.0.4"','"minVersion": "1.0.4"')
+          s=s.replace('android-v1.0.4/VELTRO_Mobile_v1.0.4.apk','android-v1.0.5/VELTRO_Mobile_v1.0.5.apk')
+          s=s.replace('VELTRO MTS 안정화 업데이트가 있습니다.','VELTRO MTS 입력창 키패드 수정 업데이트가 있습니다.')
+          p.write_text(s)
+
+          # Guardrails.
+          assert 'limit:historyLimit' in Path('wts-chart-v3.js').read_text()
+          assert 'currentK===5?500:currentK===3?1000:3000' in Path('desktop/patch/bbo_v44.py').read_text()
+          assert 'SOFT_INPUT_ADJUST_RESIZE' in Path('mobile/android/app/src/main/java/kr/co/veltro/mobile/MainActivity.java').read_text()
+          assert 'windowSoftInputMode="adjustResize|stateHidden"' in Path('mobile/android/app/src/main/AndroidManifest.xml').read_text()
+          PY
+      - name: Commit focused fixes
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add wts-chart-v3.js index.html desktop/patch/bbo_v44.py mobile/android/app/src/main/java/kr/co/veltro/mobile/MainActivity.java mobile/android/app/src/main/AndroidManifest.xml .github/workflows/build-veltro-android.yml mobile/version.json
+          git commit -m "Fix 15m 1h history load and MTS soft keyboard"
+          git push
