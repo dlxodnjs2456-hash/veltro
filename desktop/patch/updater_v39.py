@@ -59,25 +59,21 @@ build_cfg=pkg.setdefault('build',{})
 build_cfg['publish']=[{'provider':'github','owner':'dlxodnjs2456-hash','repo':'veltro','releaseType':'release'}]
 pkg_path.write_text(json.dumps(pkg,ensure_ascii=False,indent=2),encoding='utf-8')
 
-# v1.0.41: historical bars remain Databento, while the currently forming candle and
-# displayed last price use the exact same getMarketQuote response as the HTS quote state.
-# The existing chart refresh cadence is preserved to avoid changing provider load behavior.
+# v1.0.42: chart-only live rendering. Never mutate the existing trade/orderbook state.
+# Historical bars stay Databento; the forming candle uses the quote response only inside the chart window.
 renderer=renderer_path.read_text(encoding='utf-8')
 
 helper_anchor="  async function draw(resetView=false){"
-helper=r'''  function applyUnifiedChartQuote(qr){
+helper=r'''  function applyChartOnlyLiveQuote(qr){
     if(!qr?.ok||!qr?.quote)return false;
     const sy=localSymbol(),v=Number(qr.quote.ld);
     if(!Number.isFinite(v)||v<=0)return false;
-    try{if(typeof applyMarketQuoteToState==='function')applyMarketQuoteToState(currentCode,qr,false);}catch(_e){}
     lastEl.textContent=fmt(v,dec(sy));
     if(!candleSeries)return true;
     const bucket=({1:1,2:5,3:15,4:30,5:60}[currentK]||1)*60000;
-    const now=Date.now();
-    let bt=Math.floor(now/bucket)*bucket;
+    const bt=Math.floor(Date.now()/bucket)*bucket;
     let prev=lastBars.length?{...lastBars[lastBars.length-1]}:null;
-    let prevBt=prev?Math.floor(Number(prev.t)/bucket)*bucket:null;
-    if(prevBt!==null&&bt<prevBt)bt=prevBt;
+    const prevBt=prev?Math.floor(Number(prev.t)/bucket)*bucket:null;
     let b;
     if(!prev||prevBt!==bt){
       const open=prev&&Number.isFinite(Number(prev.c))?Number(prev.c):v;
@@ -91,21 +87,21 @@ helper=r'''  function applyUnifiedChartQuote(qr){
       b.t=bt;
       lastBars[lastBars.length-1]=b;
     }
-    candleSeries.update({time:Math.floor(bt/1000),open:b.o,high:b.h,low:b.l,close:b.c});
-    if(volumeSeries)volumeSeries.update({time:Math.floor(bt/1000),value:Number(b.v)||0,color:b.c>=b.o?'rgba(239,83,80,.45)':'rgba(33,150,243,.45)'});
+    try{candleSeries.update({time:Math.floor(bt/1000),open:b.o,high:b.h,low:b.l,close:b.c});}catch(_e){}
+    if(volumeSeries){try{volumeSeries.update({time:Math.floor(bt/1000),value:Number(b.v)||0,color:b.c>=b.o?'rgba(239,83,80,.45)':'rgba(33,150,243,.45)'});}catch(_e){}}
     showLastBar(b);
-    const provider=String(qr?.provider||state.market?.provider||'MARKET').toUpperCase();
+    const provider=String(qr?.provider||'DATABENTO').toUpperCase();
     conn.textContent='LIVE · '+provider;
     conn.classList.add('live');
     return true;
   }
 '''
-if helper_anchor not in renderer: raise RuntimeError('v1.0.41 draw anchor missing')
+if helper_anchor not in renderer: raise RuntimeError('v1.0.42 draw anchor missing')
 renderer=renderer.replace(helper_anchor,helper+helper_anchor,1)
 
 old_after="buildChart(bars);showLastBar(bars[bars.length-1]);if(resetView)chart?.timeScale()?.fitContent();"
-new_after="buildChart(bars);if(!applyUnifiedChartQuote(qr))showLastBar(bars[bars.length-1]);if(resetView)chart?.timeScale()?.fitContent();"
-if old_after not in renderer: raise RuntimeError('v1.0.41 historical overwrite anchor missing')
+new_after="buildChart(bars);if(!applyChartOnlyLiveQuote(qr))showLastBar(bars[bars.length-1]);if(resetView)chart?.timeScale()?.fitContent();"
+if old_after not in renderer: raise RuntimeError('v1.0.42 historical overwrite anchor missing')
 renderer=renderer.replace(old_after,new_after,1)
 
 refresh=r'''  async function refreshQuote(){
@@ -114,13 +110,13 @@ refresh=r'''  async function refreshQuote(){
     if(!ref)return;
     try{
       const qr=await window.desktop.getMarketQuote(ref);
-      applyUnifiedChartQuote(qr);
+      applyChartOnlyLiveQuote(qr);
     }catch(_e){}
   }
   try{await initMarketData();'''
 pattern=r"  async function refreshQuote\(\)\{if\(isHsiCode\(\)\)return;.*?\n  try\{await initMarketData\(\);"
 renderer,n=re.subn(pattern,refresh,renderer,count=1,flags=re.S)
-if n!=1: raise RuntimeError('v1.0.41 live refresh anchor missing')
+if n!=1: raise RuntimeError('v1.0.42 live refresh anchor missing')
 
 renderer_path.write_text(renderer,encoding='utf-8')
 
@@ -130,6 +126,8 @@ for required in ['setFeedURL','checkForUpdates','autoInstallOnAppQuit','quitAndI
     if required not in final_main: raise RuntimeError('updater runtime missing: '+required)
 if pkg.get('build',{}).get('publish',[{}])[0].get('provider')!='github': raise RuntimeError('github publish provider missing')
 final_renderer=renderer_path.read_text(encoding='utf-8')
-for required in ['applyUnifiedChartQuote','applyMarketQuoteToState(currentCode,qr,false)','if(!applyUnifiedChartQuote(qr))showLastBar','applyUnifiedChartQuote(qr);']:
-    if required not in final_renderer: raise RuntimeError('v1.0.41 unified chart fix missing: '+required)
-print('VELTRO v1.0.41 quote/chart unification and live candle runtime verified')
+for required in ['applyChartOnlyLiveQuote','if(!applyChartOnlyLiveQuote(qr))showLastBar','applyChartOnlyLiveQuote(qr);']:
+    if required not in final_renderer: raise RuntimeError('v1.0.42 chart-only live fix missing: '+required)
+if 'applyMarketQuoteToState(currentCode,qr,false)' in final_renderer:
+    raise RuntimeError('v1.0.41 chart-to-orderbook state mutation still present')
+print('VELTRO v1.0.42 chart isolated from trade/orderbook state and verified')
