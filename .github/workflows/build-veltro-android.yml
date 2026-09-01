@@ -37,9 +37,11 @@ jobs:
 
       - name: Verify Android version
         run: |
-          grep "versionCode 5" mobile/android/app/build.gradle
-          grep "versionName '1.0.4'" mobile/android/app/build.gradle
-          grep 'VELTRO-Android/1.0.4' mobile/android/app/src/main/java/kr/co/veltro/mobile/MainActivity.java
+          grep "versionCode 6" mobile/android/app/build.gradle
+          grep "versionName '1.0.5'" mobile/android/app/build.gradle
+          grep 'VELTRO-Android/1.0.5' mobile/android/app/src/main/java/kr/co/veltro/mobile/MainActivity.java
+          grep 'SOFT_INPUT_ADJUST_RESIZE' mobile/android/app/src/main/java/kr/co/veltro/mobile/MainActivity.java
+          grep 'windowSoftInputMode="adjustResize|stateHidden"' mobile/android/app/src/main/AndroidManifest.xml
 
       - name: Build APK
         working-directory: mobile/android
@@ -48,21 +50,21 @@ jobs:
       - name: Prepare APK
         run: |
           mkdir -p mobile/android/dist
-          cp mobile/android/app/build/outputs/apk/debug/app-debug.apk mobile/android/dist/VELTRO_Mobile_v1.0.4.apk
+          cp mobile/android/app/build/outputs/apk/debug/app-debug.apk mobile/android/dist/VELTRO_Mobile_v1.0.5.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: VELTRO_Mobile_v1.0.4
-          path: mobile/android/dist/VELTRO_Mobile_v1.0.4.apk
+          name: VELTRO_Mobile_v1.0.5
+          path: mobile/android/dist/VELTRO_Mobile_v1.0.5.apk
           if-no-files-found: error
 
       - name: Publish Android test release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release delete android-v1.0.4 --cleanup-tag -y || true
-          gh release create android-v1.0.4 \
-            mobile/android/dist/VELTRO_Mobile_v1.0.4.apk \
-            --title 'VELTRO Android v1.0.4' \
-            --notes 'Network and update reliability release. Adds native connectivity monitoring, automatic reconnect signaling, in-app update checks, correct download filenames, and keeps the shared WTS/MTS trading semantics unchanged.'
+          gh release delete android-v1.0.5 --cleanup-tag -y || true
+          gh release create android-v1.0.5 \
+            mobile/android/dist/VELTRO_Mobile_v1.0.5.apk \
+            --title 'VELTRO Android v1.0.5' \
+            --notes 'MTS input fix. Restores Android WebView soft keyboard and focus behavior for deposit and inquiry text fields while preserving shared WTS/MTS trading semantics.'
