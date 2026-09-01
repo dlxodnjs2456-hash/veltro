@@ -103,15 +103,11 @@ helper=r'''  function applyUnifiedChartQuote(qr){
 if helper_anchor not in renderer: raise RuntimeError('v1.0.41 draw anchor missing')
 renderer=renderer.replace(helper_anchor,helper+helper_anchor,1)
 
-# Historical redraw must end by applying the live quote, never by overwriting it with
-# the delayed historical last close.
 old_after="buildChart(bars);showLastBar(bars[bars.length-1]);if(resetView)chart?.timeScale()?.fitContent();"
 new_after="buildChart(bars);if(!applyUnifiedChartQuote(qr))showLastBar(bars[bars.length-1]);if(resetView)chart?.timeScale()?.fitContent();"
 if old_after not in renderer: raise RuntimeError('v1.0.41 historical overwrite anchor missing')
 renderer=renderer.replace(old_after,new_after,1)
 
-# Replace whatever live-refresh implementation previous versions left behind with one
-# unified path that always updates state + displayed last price + current candle together.
 refresh=r'''  async function refreshQuote(){
     if(isHsiCode())return;
     const ref=localRef();
@@ -126,8 +122,10 @@ pattern=r"  async function refreshQuote\(\)\{if\(isHsiCode\(\)\)return;.*?\n  tr
 renderer,n=re.subn(pattern,refresh,renderer,count=1,flags=re.S)
 if n!=1: raise RuntimeError('v1.0.41 live refresh anchor missing')
 
-# Make the visible chart react faster while keeping requests serialized by Electron/provider.
-renderer=renderer.replace("quoteTimer=setInterval(()=>{if(!document.hidden)refreshQuote()},2500);","quoteTimer=setInterval(()=>{if(!document.hidden)refreshQuote()},1500);",1)
+# Make the visible chart react faster. Match either 2.5s or any previous numeric interval.
+timer_pattern=r"quoteTimer=setInterval\(\(\)=>\{if\(!document\.hidden\)refreshQuote\(\)\},\s*\d+\s*\);"
+renderer,n_timer=re.subn(timer_pattern,"quoteTimer=setInterval(()=>{if(!document.hidden)refreshQuote()},1500);",renderer,count=1)
+if n_timer!=1: raise RuntimeError('v1.0.41 chart quote timer anchor missing')
 
 renderer_path.write_text(renderer,encoding='utf-8')
 
@@ -137,6 +135,6 @@ for required in ['setFeedURL','checkForUpdates','autoInstallOnAppQuit','quitAndI
     if required not in final_main: raise RuntimeError('updater runtime missing: '+required)
 if pkg.get('build',{}).get('publish',[{}])[0].get('provider')!='github': raise RuntimeError('github publish provider missing')
 final_renderer=renderer_path.read_text(encoding='utf-8')
-for required in ['applyUnifiedChartQuote','applyMarketQuoteToState(currentCode,qr,false)','if(!applyUnifiedChartQuote(qr))showLastBar','quoteTimer=setInterval(()=>{if(!document.hidden)refreshQuote()},1500)']:
+for required in ['applyUnifiedChartQuote','applyMarketQuoteToState(currentCode,qr,false)','if(!applyUnifiedChartQuote(qr))showLastBar','refreshQuote()},1500)']:
     if required not in final_renderer: raise RuntimeError('v1.0.41 unified chart fix missing: '+required)
 print('VELTRO v1.0.41 quote/chart unification and live candle runtime verified')
