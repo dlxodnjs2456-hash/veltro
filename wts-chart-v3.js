@@ -5,6 +5,7 @@
   let liveTimer=null,resizeObs=null,candleSeries=null,volumeSeries=null,lastBars=[];
   const tfLabel={1:'1분',2:'5분',3:'15분',4:'30분',5:'1시간'};
   const tfMinutes={1:1,2:5,3:15,4:30,5:60};
+  const historyLimit={1:1500,2:1200,3:500,4:500,5:300};
   const style=document.createElement('style');
   style.textContent=`
   .wts-tv{height:100%;min-height:0;min-width:0;display:flex;flex-direction:column;background:#fff;border:1px solid #e1e6ec;color:#3d4652;overflow:hidden}
@@ -40,7 +41,7 @@
   function setConn(text,stale=false){const el=document.querySelector('#wtsTvConn');if(!el)return;el.textContent=text;el.classList.toggle('stale',!!stale)}
   function shell(){
     const wrap=document.querySelector('.chart-wrap');if(!wrap)return null;
-    wrap.innerHTML=`<div class="wts-tv"><div class="wts-tv-head"><strong id="wtsTvSymbol">${cur.symbol} · ${cur.name}</strong><span id="wtsTvExchange">${cur.exchange}</span><span class="live" id="wtsTvConn">연결 확인 중...</span></div><div class="wts-tv-tfs">${[1,2,3,4,5].map(k=>`<button data-tv-tf="${k}" class="${Number(tf)===k?'active':''}">${tfLabel[k]}</button>`).join('')}<button class="reload" id="wtsTvReload">새로고침</button></div><div class="wts-tv-ohlc" id="wtsTvOhlc"><b id="wtsTvLast">-</b><span>시 -</span><span>고 -</span><span>저 -</span><span>종 -</span></div><div class="wts-tv-box" id="chartBox"><div class="wts-tv-loading">과거봉을 불러오는 중입니다.</div></div><div class="wts-tv-state"><span id="wtsTvState">과거봉 Databento · 현재가 Databento Live 우선</span><span id="wtsTvUpdated"></span></div></div>`;
+    wrap.innerHTML=`<div class="wts-tv"><div class="wts-tv-head"><strong id="wtsTvSymbol">${cur.symbol} · ${cur.name}</strong><span id="wtsTvExchange">${cur.exchange}</span><span class="live" id="wtsTvConn">연결 확인 중...</span></div><div class="wts-tv-tfs">${[1,2,3,4,5].map(k=>`<button data-tv-tf="${k}" class="${Number(tf)===k?'active':''}">${tfLabel[k]}</button>`).join('')}<button class="reload" id="wtsTvReload">새로고침</button></div><div class="wts-tv-ohlc" id="wtsTvOhlc"><b id="wtsTvLast">-</b><span>시 -</span><span>고 -</span><span>저 -</span><span>종 -</span></div><div class="wts-tv-box" id="chartBox"><div class="wts-tv-loading">과거봉을 불러오는 중입니다.</div></div><div class="wts-tv-state"><span id="wtsTvState">Databento 과거봉 + Databento Live</span><span id="wtsTvUpdated"></span></div></div>`;
     wrap.querySelectorAll('[data-tv-tf]').forEach(b=>b.onclick=()=>{tf=Number(b.dataset.tvTf)||1;drawChart()});
     wrap.querySelector('#wtsTvReload').onclick=()=>drawChart();
     return wrap.querySelector('#chartBox');
@@ -56,7 +57,8 @@
     const code=cur.code,symbol=cur.symbol;
     try{
       const LC=await ensureLC();
-      const r=await api(FEED,{action:'kline',code,kType:Number(tf)||1,limit:3000});
+      const limit=historyLimit[Number(tf)||1]||500;
+      const r=await api(FEED,{action:'kline',code,kType:Number(tf)||1,limit});
       if(cur.code!==code||page!=='trade'||tab!=='chart')return;
       const bars=normalize(r?.bars);if(!bars.length)throw new Error('과거봉 데이터가 없습니다.');lastBars=bars;
       box.innerHTML='';
@@ -65,7 +67,7 @@
       candleSeries.setData(bars.map(b=>({time:Math.floor(b.t/1000),open:b.o,high:b.h,low:b.l,close:b.c})));
       volumeSeries=chart.addHistogramSeries({priceFormat:{type:'volume'},priceScaleId:'vol'});chart.priceScale('vol').applyOptions({scaleMargins:{top:.78,bottom:0}});volumeSeries.setData(bars.map(b=>({time:Math.floor(b.t/1000),value:b.v,color:b.c>=b.o?'rgba(239,83,80,.45)':'rgba(33,150,243,.45)'})));
       chart.timeScale().fitContent();showBar(bars[bars.length-1]);
-      const root=document.querySelector('.wts-tv');if(root){setConn('Databento 연결');root.querySelector('#wtsTvState').textContent=`${symbol} · 과거봉 Databento · 현재가 Databento Live 우선 · ${bars.length}봉`;}
+      const root=document.querySelector('.wts-tv');if(root){setConn('Databento 연결');root.querySelector('#wtsTvState').textContent=`${symbol} · Databento · ${bars.length}봉`;}
       resizeObs=new ResizeObserver(()=>{if(chart){const w=Math.max(1,box.clientWidth),h=Math.max(260,box.clientHeight);chart.applyOptions({width:w,height:h})}});resizeObs.observe(box);
       liveTimer=setInterval(()=>{if(!document.hidden)liveUpdate(code)},1500);
     }catch(e){box.innerHTML=`<div class="wts-tv-loading"><div><b>과거봉을 불러오지 못했습니다.</b><br>${String(e?.message||e)}</div></div>`;setConn('연결 오류',true);}
