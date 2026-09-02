@@ -45,15 +45,32 @@ if 'function aggregateTfBars(src,mins)' not in renderer:
         raise RuntimeError('chart draw anchor missing for timeframe compatibility')
     renderer=renderer.replace(draw_anchor,agg_helper+draw_anchor,1)
 
+# HSI remains visible but maintenance-only. Never enter any historical/realtime LS path.
+maintenance_guard="  async function draw(resetView=false){if(isHsiCode()){box.innerHTML='<div class=\"chart-loading\"><b>현재 점검중인 종목입니다.</b></div>';loading=false;return;}"
+if draw_anchor in renderer:
+    renderer=renderer.replace(draw_anchor,maintenance_guard,1)
+
 req_old="window.desktop.getMarketKline({...ref,kType:currentK,limit:3000})"
-req_new="window.desktop.getMarketKline({...ref,kType:currentK,limit:(currentK===5?500:currentK===3?1000:3000)})"
+req_new="window.desktop.getMarketKline({...ref,kType:currentK,limit:(currentK===5?300:currentK===4?500:currentK===3?500:currentK===2?1200:1500)})"
 if req_old not in renderer:
     raise RuntimeError('production kline request missing')
 renderer=renderer.replace(req_old,req_new,1)
 
-bars="const bars=(databentoOnly||lsHsiOnly)?normalizeBars(res?.bars):[];lastBars=bars;"
-if bars not in renderer:
+# Final chart result is Databento-only. Legacy LS variables may remain for build compatibility,
+# but they are not allowed to provide bars or open a realtime connection in the packaged app.
+bars_old="const bars=(databentoOnly||lsHsiOnly)?normalizeBars(res?.bars):[];lastBars=bars;"
+bars_new="const bars=databentoOnly?normalizeBars(res?.bars):[];lastBars=bars;"
+if bars_old not in renderer:
     raise RuntimeError('filtered bars anchor missing')
+renderer=renderer.replace(bars_old,bars_new,1)
+
+start_rt="function startRealtime(){closeRealtime();if(!isHsiCode()||document.hidden)return;"
+if start_rt in renderer:
+    renderer=renderer.replace(start_rt,"function startRealtime(){return;/* DATABENTO_ONLY_LS_DISABLED */if(!isHsiCode()||document.hidden)return;",1)
+renderer=renderer.replace('LIVE · LS WS','LIVE · DATABENTO')
+renderer=renderer.replace('LS 실시간 연결 중...','현재 점검중인 종목입니다.')
+renderer=renderer.replace('LS 실시간 재연결 중...','현재 점검중인 종목입니다.')
+renderer=renderer.replace('LS 실시간 구독 중...','현재 점검중인 종목입니다.')
 
 # The live quote timer owns the actively-forming candle. Remove only a 30-second
 # barTimer history resync if one still exists after all previous compatibility patches.
@@ -68,10 +85,11 @@ for needle in [
     'const prevAsk=Number(p.ask),prevBid=Number(p.bid);',
     'window.__veltroLadderCenter',
     'Math.abs(p.last-ladderCenter)>=tick*2',
-    'lsHsiOnly',
     'applyChartOnlyLiveQuote',
     'b={t:bt,o:v,h:v,l:v,c:v,v:0}',
-    'currentK===5?500:currentK===3?1000:3000'
+    'currentK===5?300:currentK===4?500:currentK===3?500:currentK===2?1200:1500',
+    'DATABENTO_ONLY_LS_DISABLED',
+    'const bars=databentoOnly?normalizeBars(res?.bars):[];lastBars=bars;'
 ]:
     if needle not in check:
         raise RuntimeError('missing BBO/chart guard: '+needle)
@@ -79,6 +97,9 @@ if not re.search(r"quoteTimer\s*=\s*setInterval",check):
     raise RuntimeError('realtime quote timer missing')
 if re.search(r"barTimer\s*=\s*setInterval\(.*?,\s*30000\s*\)",check,re.S):
     raise RuntimeError('30-second historical redraw still active')
+for forbidden in ['LIVE · LS WS','LS 실시간 연결 중...','LS 실시간 재연결 중...','LS 실시간 구독 중...']:
+    if forbidden in check:
+        raise RuntimeError('active LS chart text remains: '+forbidden)
 for expected in ['6847.5','13695','34237.5','8559.4']:
     if not re.search(rf"tickValue\s*:\s*{re.escape(expected)}(?=[,}}\s])",check):
         raise RuntimeError('contract PnL benchmark missing: '+expected)
@@ -93,4 +114,4 @@ checks=[
 for got,expected,name in checks:
     if round(got)!=expected:
         raise RuntimeError(f'{name} benchmark regression mismatch: {got} != {expected}')
-print('VELTRO BBO/PnL preserved; bounded 15m/1h history and realtime candle persistence retained')
+print('VELTRO Databento-only chart runtime: LS disabled, bounded history loading, BBO/PnL preserved')
