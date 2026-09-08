@@ -27,4 +27,44 @@
     };
     window.chartLoop=chartLoop;
   }
+
+  // Mobile numeric-input compatibility for both mobile WTS and Android MTS.
+  // Android WebView/mobile browsers can intermittently reject input on
+  // dynamically-rendered type=number controls. Use text + inputmode instead;
+  // existing submit handlers still convert with Number(...), so business logic
+  // and server payloads remain unchanged.
+  const mobileInputMode=()=>window.innerWidth<=820 || /VELTRO-Android|Android|iPhone|iPad|iPod/i.test(navigator.userAgent||'');
+  const integerIds=new Set(['oq','dep','ca','wa']);
+  const decimalIds=new Set(['op']);
+  function patchMobileInput(el){
+    if(!mobileInputMode()||!el||el.tagName!=='INPUT')return;
+    const id=String(el.id||'');
+    if(integerIds.has(id)){
+      if(el.type==='number')el.type='text';
+      el.inputMode='numeric';
+      el.setAttribute('inputmode','numeric');
+      el.setAttribute('pattern','[0-9]*');
+      el.setAttribute('autocomplete','off');
+      el.setAttribute('autocorrect','off');
+      el.setAttribute('spellcheck','false');
+    }else if(decimalIds.has(id)){
+      if(el.type==='number')el.type='text';
+      el.inputMode='decimal';
+      el.setAttribute('inputmode','decimal');
+      el.setAttribute('autocomplete','off');
+      el.setAttribute('autocorrect','off');
+      el.setAttribute('spellcheck','false');
+    }
+  }
+  function scanMobileInputs(root=document){
+    if(!mobileInputMode())return;
+    root.querySelectorAll?.('input').forEach(patchMobileInput);
+  }
+  document.addEventListener('focusin',e=>patchMobileInput(e.target),true);
+  const inputObserver=new MutationObserver(mutations=>{
+    for(const m of mutations){for(const n of m.addedNodes){if(n?.nodeType!==1)continue;if(n.tagName==='INPUT')patchMobileInput(n);scanMobileInputs(n);}}
+  });
+  inputObserver.observe(document.documentElement,{childList:true,subtree:true});
+  window.addEventListener('resize',()=>scanMobileInputs());
+  scanMobileInputs();
 })();
