@@ -29,13 +29,13 @@
   }
 
   // Mobile numeric-input compatibility for both mobile WTS and Android MTS.
-  // Android WebView/mobile browsers can intermittently reject input on
-  // dynamically-rendered type=number controls. Use text + inputmode instead;
-  // existing submit handlers still convert with Number(...), so business logic
-  // and server payloads remain unchanged.
   const mobileInputMode=()=>window.innerWidth<=820 || /VELTRO-Android|Android|iPhone|iPad|iPod/i.test(navigator.userAgent||'');
   const integerIds=new Set(['oq','dep','ca','wa']);
   const decimalIds=new Set(['op']);
+  let mobileEditing=false, editReleaseTimer=null;
+
+  function isEditable(el){return !!el && ['INPUT','TEXTAREA','SELECT'].includes(el.tagName);}
+
   function patchMobileInput(el){
     if(!mobileInputMode()||!el||el.tagName!=='INPUT')return;
     const id=String(el.id||'');
@@ -56,15 +56,43 @@
       el.setAttribute('spellcheck','false');
     }
   }
+
   function scanMobileInputs(root=document){
     if(!mobileInputMode())return;
     root.querySelectorAll?.('input').forEach(patchMobileInput);
   }
-  document.addEventListener('focusin',e=>patchMobileInput(e.target),true);
+
+  // Android/iOS soft keyboards resize the visual viewport. The base app has a
+  // window.resize -> renderAll() handler; re-rendering while an input is focused
+  // destroys that DOM node and immediately closes the keyboard. Guard renderAll
+  // during mobile text entry, including a short blur grace period for WebView.
+  if(typeof renderAll==='function'){
+    const renderAllBeforeMobileGuard=renderAll;
+    renderAll=function(){
+      if(mobileInputMode() && (mobileEditing || isEditable(document.activeElement))) return;
+      return renderAllBeforeMobileGuard();
+    };
+    window.renderAll=renderAll;
+  }
+
+  document.addEventListener('focusin',e=>{
+    if(!mobileInputMode()||!isEditable(e.target))return;
+    if(editReleaseTimer){clearTimeout(editReleaseTimer);editReleaseTimer=null;}
+    mobileEditing=true;
+    patchMobileInput(e.target);
+  },true);
+
+  document.addEventListener('focusout',()=>{
+    if(!mobileInputMode())return;
+    if(editReleaseTimer)clearTimeout(editReleaseTimer);
+    editReleaseTimer=setTimeout(()=>{mobileEditing=false;editReleaseTimer=null;},350);
+  },true);
+
   const inputObserver=new MutationObserver(mutations=>{
     for(const m of mutations){for(const n of m.addedNodes){if(n?.nodeType!==1)continue;if(n.tagName==='INPUT')patchMobileInput(n);scanMobileInputs(n);}}
   });
   inputObserver.observe(document.documentElement,{childList:true,subtree:true});
   window.addEventListener('resize',()=>scanMobileInputs());
+  if(window.visualViewport) window.visualViewport.addEventListener('resize',()=>scanMobileInputs());
   scanMobileInputs();
 })();
