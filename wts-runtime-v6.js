@@ -77,18 +77,19 @@
   window.addEventListener('online',()=>{if(token){loadQuote().then(()=>{refreshLiveTrade();refreshPositionQuotes();paintConn()}).catch(()=>paintConn())}});
   window.addEventListener('offline',paintConn);
 
-  // Stable domain install buttons. Each click resolves the newest matching GitHub Release,
-  // so the WTS domain never needs a hard-coded HTS/MTS version update.
+  // Stable domain install buttons.
+  // HTS is pinned to the currently verified Windows release so Android releases cannot cause a 404.
   const RELEASES_API='https://api.github.com/repos/dlxodnjs2456-hash/veltro/releases?per_page=40';
+  const HTS_INSTALLER_URL='https://github.com/dlxodnjs2456-hash/veltro/releases/download/v1.0.55/VELTRO_HTS_Setup.exe';
   async function resolveLatestInstaller(kind){
+    if(kind==='hts')return HTS_INSTALLER_URL;
     const res=await fetch(RELEASES_API,{headers:{Accept:'application/vnd.github+json'},cache:'no-store'});
     if(!res.ok)throw new Error('release_lookup_failed');
     const releases=await res.json();
-    const isHts=r=>/^v\d+\.\d+\.\d+$/.test(String(r?.tag_name||''));
     const isMts=r=>/^android-v\d+\.\d+\.\d+$/.test(String(r?.tag_name||''));
-    const rel=(Array.isArray(releases)?releases:[]).find(r=>!r?.draft&&!r?.prerelease&&(kind==='hts'?isHts(r):isMts(r)));
+    const rel=(Array.isArray(releases)?releases:[]).find(r=>!r?.draft&&!r?.prerelease&&isMts(r));
     if(!rel)throw new Error('release_not_found');
-    const asset=(rel.assets||[]).find(a=>kind==='hts'?String(a?.name||'')==='VELTRO_HTS_Setup.exe':/\.apk$/i.test(String(a?.name||'')));
+    const asset=(rel.assets||[]).find(a=>/\.apk$/i.test(String(a?.name||'')));
     if(!asset?.browser_download_url)throw new Error('installer_not_found');
     return asset.browser_download_url;
   }
@@ -96,9 +97,9 @@
     if(document.getElementById('veltroInstallButtons'))return;
     const card=document.querySelector('#login .login-card');if(!card)return;
     const box=document.createElement('div');box.id='veltroInstallButtons';box.style.cssText='display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px';
-    const mk=(id,label,kind)=>{const b=document.createElement('button');b.type='button';b.id=id;b.textContent=label;b.style.cssText='height:40px;margin:0;border:1px solid #c9d1db;background:#fff;color:#1f2937;border-radius:7px;font-weight:800;cursor:pointer';b.onclick=async()=>{const old=b.textContent;b.disabled=true;b.textContent='최신 버전 확인 중...';try{const u=await resolveLatestInstaller(kind);window.location.href=u}catch(e){console.error('[installer]',e);alert('설치파일을 불러오지 못했습니다. 잠시 후 다시 시도해주세요.')}finally{b.disabled=false;b.textContent=old}};return b};
+    const mk=(id,label,kind)=>{const b=document.createElement('button');b.type='button';b.id=id;b.textContent=label;b.style.cssText='height:40px;margin:0;border:1px solid #c9d1db;background:#fff;color:#1f2937;border-radius:7px;font-weight:800;cursor:pointer';b.onclick=async()=>{const old=b.textContent;b.disabled=true;b.textContent='최신 버전 확인 중...';try{const u=await resolveLatestInstaller(kind);window.location.assign(u)}catch(e){console.error('[installer]',e);alert('설치파일을 불러오지 못했습니다. 잠시 후 다시 시도해주세요.')}finally{b.disabled=false;b.textContent=old}};return b};
     box.append(mk('veltroHtsDownload','HTS 다운로드','hts'),mk('veltroMtsDownload','MTS 다운로드','mts'));card.appendChild(box);
-    const note=document.createElement('div');note.textContent='항상 최신 설치파일로 연결됩니다.';note.style.cssText='margin-top:7px;text-align:center;color:#98a2b3;font-size:11px';card.appendChild(note);
+    const note=document.createElement('div');note.textContent='HTS는 검증된 최신 Windows 설치파일, MTS는 최신 Android 설치파일로 연결됩니다.';note.style.cssText='margin-top:7px;text-align:center;color:#98a2b3;font-size:11px';card.appendChild(note);
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',installButtons,{once:true});else installButtons();
 
