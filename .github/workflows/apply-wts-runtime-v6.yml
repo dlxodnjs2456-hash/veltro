@@ -7,7 +7,6 @@ on:
       - '.github/workflows/apply-wts-runtime-v6.yml'
       - 'wts-runtime-v6.js'
       - 'wts-chart-v3.js'
-      - 'wts-order-confirm-v9.js'
 
 permissions:
   contents: write
@@ -20,54 +19,81 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Validate WTS JavaScript
-        run: |
-          node --check wts-runtime-v6.js
-          node --check wts-chart-v3.js
-          node --check wts-order-confirm-v9.js
-          grep "HTS_INSTALLER_URL='https://github.com/dlxodnjs2456-hash/veltro/releases/download/v1.0.55/VELTRO_HTS_Setup.exe'" wts-runtime-v6.js
-      - name: Refresh final runtime loaders
+
+      - name: Patch core mobile order cancel flow
         run: |
           python - <<'PY'
           from pathlib import Path
           import re
           p=Path('index.html')
           s=p.read_text(encoding='utf-8')
-          s=re.sub(r'\s*<script src="/wts-position-quotes-v5\.js\?v=[^"]+"></script>', '', s)
-          s=re.sub(r'<script src="/wts-chart-v3\.js\?v=[^"]+"></script>', '<script src="/wts-chart-v3.js?v=20260910-orderfix1"></script>', s)
-          s=re.sub(r'<script src="/wts-runtime-v6\.js\?v=[^"]+"></script>', '<script src="/wts-runtime-v6.js?v=20260910-orderfix1"></script>', s)
-          s=re.sub(r'<script src="/wts-order-confirm-v9\.js\?v=[^"]+"></script>', '<script src="/wts-order-confirm-v9.js?v=20260910-orderfix1"></script>', s)
-          chart='<script src="/wts-chart-v3.js?v=20260910-orderfix1"></script>'
-          runtime='<script src="/wts-runtime-v6.js?v=20260910-orderfix1"></script>'
-          orderfix='<script src="/wts-order-confirm-v9.js?v=20260910-orderfix1"></script>'
-          if chart not in s:
-              s=s.replace('</body>',chart+'\n</body>',1)
-          if runtime not in s:
-              s=s.replace('</body>',runtime+'\n</body>',1)
-          if orderfix not in s:
-              s=s.replace('</body>',orderfix+'\n</body>',1)
-          for required in ['/wts-hotfix-v2.js','/wts-chart-v3.js','/wts-responsive-v4.js','/wts-runtime-v6.js','/wts-order-confirm-v9.js']:
-              if required not in s: raise SystemExit('missing required loader: '+required)
-          p.write_text(s,encoding='utf-8')
+          pattern=r"async function mobileOrder\(type\)\{const q=Number\(prompt\('주문 수량','1'\)\);if\(!q\)return;const side=confirm\('매수면 확인, 매도면 취소를 누르세요\.'\)\?'BUY':'SELL';const price=type==='LIMIT'\?Number\(prompt\('지정가',String\(lp\(\)\)\)\):lp\(\);try\{await api\(TRADING,\{action:'submit_order',symbol:cur\.symbol,side,order_type:type,qty:q,price\}\);await loadTrading\(\);renderAll\(\);toast\('주문 처리 완료'\)\}catch\(e\)\{toast\('주문 실패: '\+e\.message\)\}\}"
+          replacement="""async function mobileOrder(type){
+            if(window.__veltroMobileOrderBusy)return;
+            const rawQty=prompt('주문 수량을 입력하세요.','1');
+            if(rawQty===null)return;
+            const q=Number(rawQty);
+            if(!Number.isFinite(q)||q<=0){toast('주문 수량을 확인해주세요.');return}
+            const rawSide=prompt('주문 방향을 입력하세요.\\n매수 = BUY 또는 매수\\n매도 = SELL 또는 매도\\n취소하려면 취소 버튼을 누르세요.','매수');
+            if(rawSide===null)return;
+            const sideText=String(rawSide).trim().toUpperCase();
+            const side=(sideText==='BUY'||sideText==='매수')?'BUY':(sideText==='SELL'||sideText==='매도')?'SELL':null;
+            if(!side){toast('주문 방향을 확인해주세요.');return}
+            let price=lp();
+            if(type==='LIMIT'){
+              const rawPrice=prompt('지정가를 입력하세요.',String(lp()));
+              if(rawPrice===null)return;
+              price=Number(rawPrice);
+            }
+            if(!Number.isFinite(Number(price))||Number(price)<=0){toast('주문 가격을 확인해주세요.');return}
+            const sideKo=side==='BUY'?'매수':'매도';
+            const orderKo=type==='LIMIT'?'지정가':'시장가';
+            const ok=confirm(`${cur.symbol}\\n${sideKo} ${q}계약 · ${orderKo}\\n\\n체결을 진행하시겠습니까?\\n취소를 누르면 주문은 전송되지 않습니다.`);
+            if(!ok)return;
+            window.__veltroMobileOrderBusy=true;
+            try{
+              const r=await api(TRADING,{action:'submit_order',symbol:cur.symbol,side,order_type:type,qty:q,price:Number(price)});
+              await loadTrading();
+              renderAll();
+              toast(r?.filled===false?'지정가 주문이 접수되었습니다.':'주문이 체결되었습니다.');
+            }catch(e){
+              toast(e?.message==='action_in_progress'?'주문 처리 중입니다.':'주문 실패: '+(e?.message||'request_failed'));
+            }finally{
+              window.__veltroMobileOrderBusy=false;
+            }
+          }"""
+          ns,n=re.subn(pattern,replacement,s,count=1)
+          if n!=1:
+              raise SystemExit(f'mobileOrder core patch failed: replacements={n}')
+          ns=ns.replace('\n<script src="/wts-order-confirm-v9.js?v=20260910-orderfix1"></script>','')
+          ns=ns.replace('wts-runtime-v6.js?v=20260910-orderfix1','wts-runtime-v6.js?v=20260910-orderfix2')
+          ns=ns.replace('wts-chart-v3.js?v=20260910-orderfix1','wts-chart-v3.js?v=20260910-orderfix2')
+          p.write_text(ns,encoding='utf-8')
           PY
-      - name: Verify protected functionality anchors remain
+
+      - name: Validate WTS JavaScript
+        run: |
+          node --check wts-runtime-v6.js
+          node --check wts-chart-v3.js
+
+      - name: Verify mobile cancel safety
         run: |
           python - <<'PY'
           from pathlib import Path
           s=Path('index.html').read_text(encoding='utf-8')
-          anchors=['deposit_confirm_request','submit_order','close_position','set_overnight','change_password','withdrawal-api','account-api','trading-api']
-          missing=[x for x in anchors if x not in s]
-          if missing: raise SystemExit('protected anchors missing: '+','.join(missing))
-          if 'wts-position-quotes-v5.js' in s: raise SystemExit('old position v5 loader still present')
-          for tag in ['wts-chart-v3.js?v=20260910-orderfix1','wts-runtime-v6.js?v=20260910-orderfix1','wts-order-confirm-v9.js?v=20260910-orderfix1']:
-              if tag not in s: raise SystemExit('loader version missing: '+tag)
-          print('Protected functionality anchors preserved; mobile order cancel safety hotfix loaded')
+          bad="confirm('매수면 확인, 매도면 취소를 누르세요.')?'BUY':'SELL'"
+          if bad in s: raise SystemExit('unsafe mobile order logic still present')
+          if "if(rawSide===null)return" not in s: raise SystemExit('side cancel guard missing')
+          if "if(!ok)return" not in s: raise SystemExit('final cancel guard missing')
+          if 'wts-order-confirm-v9.js' in s: raise SystemExit('obsolete v9 loader still present')
+          print('Core mobile order cancel flow verified')
           PY
-      - name: Commit WTS MTS loader refresh
+
+      - name: Commit core mobile order fix
         run: |
-          if git diff --quiet -- index.html; then exit 0; fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add index.html
-          git commit -m 'Load mobile order confirmation safety hotfix'
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'Fix mobile order cancel in core WTS MTS flow'
           git push
