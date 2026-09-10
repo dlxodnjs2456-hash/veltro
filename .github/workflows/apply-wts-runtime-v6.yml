@@ -7,6 +7,7 @@ on:
       - '.github/workflows/apply-wts-runtime-v6.yml'
       - 'wts-runtime-v6.js'
       - 'wts-chart-v3.js'
+      - 'wts-order-confirm-v9.js'
 
 permissions:
   contents: write
@@ -19,52 +20,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Fix HTS installer resolver
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          p=Path('wts-runtime-v6.js')
-          s=p.read_text(encoding='utf-8')
-          old="""  const RELEASES_API='https://api.github.com/repos/dlxodnjs2456-hash/veltro/releases?per_page=40';
-  async function resolveLatestInstaller(kind){
-    const res=await fetch(RELEASES_API,{headers:{Accept:'application/vnd.github+json'},cache:'no-store'});
-    if(!res.ok)throw new Error('release_lookup_failed');
-    const releases=await res.json();
-    const isHts=r=>/^v\\d+\\.\\d+\\.\\d+$/.test(String(r?.tag_name||''));
-    const isMts=r=>/^android-v\\d+\\.\\d+\\.\\d+$/.test(String(r?.tag_name||''));
-    const rel=(Array.isArray(releases)?releases:[]).find(r=>!r?.draft&&!r?.prerelease&&(kind==='hts'?isHts(r):isMts(r)));
-    if(!rel)throw new Error('release_not_found');
-    const asset=(rel.assets||[]).find(a=>kind==='hts'?String(a?.name||'')==='VELTRO_HTS_Setup.exe':/\\.apk$/i.test(String(a?.name||'')));
-    if(!asset?.browser_download_url)throw new Error('installer_not_found');
-    return asset.browser_download_url;
-  }
-"""
-          new="""  const RELEASES_API='https://api.github.com/repos/dlxodnjs2456-hash/veltro/releases?per_page=40';
-  const HTS_INSTALLER_URL='https://github.com/dlxodnjs2456-hash/veltro/releases/download/v1.0.55/VELTRO_HTS_Setup.exe';
-  async function resolveLatestInstaller(kind){
-    if(kind==='hts')return HTS_INSTALLER_URL;
-    const res=await fetch(RELEASES_API,{headers:{Accept:'application/vnd.github+json'},cache:'no-store'});
-    if(!res.ok)throw new Error('release_lookup_failed');
-    const releases=await res.json();
-    const isMts=r=>/^android-v\\d+\\.\\d+\\.\\d+$/.test(String(r?.tag_name||''));
-    const rel=(Array.isArray(releases)?releases:[]).find(r=>!r?.draft&&!r?.prerelease&&isMts(r));
-    if(!rel)throw new Error('release_not_found');
-    const asset=(rel.assets||[]).find(a=>/\\.apk$/i.test(String(a?.name||'')));
-    if(!asset?.browser_download_url)throw new Error('installer_not_found');
-    return asset.browser_download_url;
-  }
-"""
-          if old not in s:
-              if 'HTS_INSTALLER_URL' not in s:
-                  raise SystemExit('HTS installer resolver anchor not found')
-          else:
-              s=s.replace(old,new,1)
-          p.write_text(s,encoding='utf-8')
-          PY
       - name: Validate WTS JavaScript
         run: |
           node --check wts-runtime-v6.js
           node --check wts-chart-v3.js
+          node --check wts-order-confirm-v9.js
           grep "HTS_INSTALLER_URL='https://github.com/dlxodnjs2456-hash/veltro/releases/download/v1.0.55/VELTRO_HTS_Setup.exe'" wts-runtime-v6.js
       - name: Refresh final runtime loaders
         run: |
@@ -74,17 +34,19 @@ jobs:
           p=Path('index.html')
           s=p.read_text(encoding='utf-8')
           s=re.sub(r'\s*<script src="/wts-position-quotes-v5\.js\?v=[^"]+"></script>', '', s)
-          s=re.sub(r'<script src="/wts-chart-v3\.js\?v=[^"]+"></script>', '<script src="/wts-chart-v3.js?v=20260909-htsfix1"></script>', s)
-          s=re.sub(r'<script src="/wts-runtime-v6\.js\?v=[^"]+"></script>', '<script src="/wts-runtime-v6.js?v=20260909-htsfix1"></script>', s)
-          chart='<script src="/wts-chart-v3.js?v=20260909-htsfix1"></script>'
-          runtime='<script src="/wts-runtime-v6.js?v=20260909-htsfix1"></script>'
+          s=re.sub(r'<script src="/wts-chart-v3\.js\?v=[^"]+"></script>', '<script src="/wts-chart-v3.js?v=20260910-orderfix1"></script>', s)
+          s=re.sub(r'<script src="/wts-runtime-v6\.js\?v=[^"]+"></script>', '<script src="/wts-runtime-v6.js?v=20260910-orderfix1"></script>', s)
+          s=re.sub(r'<script src="/wts-order-confirm-v9\.js\?v=[^"]+"></script>', '<script src="/wts-order-confirm-v9.js?v=20260910-orderfix1"></script>', s)
+          chart='<script src="/wts-chart-v3.js?v=20260910-orderfix1"></script>'
+          runtime='<script src="/wts-runtime-v6.js?v=20260910-orderfix1"></script>'
+          orderfix='<script src="/wts-order-confirm-v9.js?v=20260910-orderfix1"></script>'
           if chart not in s:
-              if '</body>' not in s: raise SystemExit('body anchor missing')
               s=s.replace('</body>',chart+'\n</body>',1)
           if runtime not in s:
-              if '</body>' not in s: raise SystemExit('body anchor missing')
               s=s.replace('</body>',runtime+'\n</body>',1)
-          for required in ['/wts-hotfix-v2.js','/wts-chart-v3.js','/wts-responsive-v4.js','/wts-runtime-v6.js']:
+          if orderfix not in s:
+              s=s.replace('</body>',orderfix+'\n</body>',1)
+          for required in ['/wts-hotfix-v2.js','/wts-chart-v3.js','/wts-responsive-v4.js','/wts-runtime-v6.js','/wts-order-confirm-v9.js']:
               if required not in s: raise SystemExit('missing required loader: '+required)
           p.write_text(s,encoding='utf-8')
           PY
@@ -97,15 +59,15 @@ jobs:
           missing=[x for x in anchors if x not in s]
           if missing: raise SystemExit('protected anchors missing: '+','.join(missing))
           if 'wts-position-quotes-v5.js' in s: raise SystemExit('old position v5 loader still present')
-          for tag in ['wts-chart-v3.js?v=20260909-htsfix1','wts-runtime-v6.js?v=20260909-htsfix1']:
+          for tag in ['wts-chart-v3.js?v=20260910-orderfix1','wts-runtime-v6.js?v=20260910-orderfix1','wts-order-confirm-v9.js?v=20260910-orderfix1']:
               if tag not in s: raise SystemExit('loader version missing: '+tag)
-          print('Protected functionality anchors preserved; HTS installer fix loaded')
+          print('Protected functionality anchors preserved; mobile order cancel safety hotfix loaded')
           PY
       - name: Commit WTS MTS loader refresh
         run: |
-          if git diff --quiet -- index.html wts-runtime-v6.js; then exit 0; fi
+          if git diff --quiet -- index.html; then exit 0; fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add index.html wts-runtime-v6.js
-          git commit -m 'Fix HTS domain download link'
+          git add index.html
+          git commit -m 'Load mobile order confirmation safety hotfix'
           git push
