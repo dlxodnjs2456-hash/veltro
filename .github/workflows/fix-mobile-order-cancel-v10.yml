@@ -1,0 +1,83 @@
+name: Fix mobile order cancel v10
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/fix-mobile-order-cancel-v10.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Replace mobile order function in index
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('index.html')
+          s=p.read_text(encoding='utf-8')
+          old="""async function mobileOrder(type){const q=Number(prompt('주문 수량','1'));if(!q)return;const side=confirm('매수면 확인, 매도면 취소를 누르세요.')?'BUY':'SELL';const price=type==='LIMIT'?Number(prompt('지정가',String(lp()))):lp();try{await api(TRADING,{action:'submit_order',symbol:cur.symbol,side,order_type:type,qty:q,price});await loadTrading();renderAll();toast('주문 처리 완료')}catch(e){toast('주문 실패: '+e.message)}}"""
+          new="""async function mobileOrder(type){
+  if(window.__veltroMobileOrderBusy)return;
+  const rawQty=prompt('주문 수량을 입력하세요.','1');
+  if(rawQty===null)return;
+  const q=Number(rawQty);
+  if(!Number.isFinite(q)||q<=0){toast('주문 수량을 확인해주세요.');return}
+  const rawSide=prompt('주문 방향을 입력하세요.\\n매수 = BUY 또는 매수\\n매도 = SELL 또는 매도\\n취소하려면 취소 버튼을 누르세요.','매수');
+  if(rawSide===null)return;
+  const sideText=String(rawSide).trim().toUpperCase();
+  const side=(sideText==='BUY'||sideText==='매수')?'BUY':(sideText==='SELL'||sideText==='매도')?'SELL':null;
+  if(!side){toast('주문 방향을 확인해주세요.');return}
+  let price=lp();
+  if(type==='LIMIT'){
+    const rawPrice=prompt('지정가를 입력하세요.',String(lp()));
+    if(rawPrice===null)return;
+    price=Number(rawPrice);
+  }
+  if(!Number.isFinite(Number(price))||Number(price)<=0){toast('주문 가격을 확인해주세요.');return}
+  const sideKo=side==='BUY'?'매수':'매도';
+  const orderKo=type==='LIMIT'?'지정가':'시장가';
+  if(!confirm(`${cur.symbol}\\n${sideKo} ${q}계약 · ${orderKo}\\n\\n체결을 진행하시겠습니까?\\n취소를 누르면 주문은 전송되지 않습니다.`))return;
+  window.__veltroMobileOrderBusy=true;
+  try{
+    const r=await api(TRADING,{action:'submit_order',symbol:cur.symbol,side,order_type:type,qty:q,price:Number(price)});
+    await loadTrading();
+    renderAll();
+    toast(r?.filled===false?'지정가 주문이 접수되었습니다.':'주문이 체결되었습니다.');
+  }catch(e){toast(e?.message==='action_in_progress'?'주문 처리 중입니다.':'주문 실패: '+(e?.message||'request_failed'))}
+  finally{window.__veltroMobileOrderBusy=false}
+}"""
+          if old not in s:
+              raise SystemExit('old mobileOrder anchor not found')
+          s=s.replace(old,new,1)
+          # remove external v9 loader now that the core function is fixed directly
+          s=s.replace('\n<script src="/wts-order-confirm-v9.js?v=20260910-orderfix1"></script>','')
+          # bust runtime-related caches in the deployed HTML
+          s=s.replace('wts-runtime-v6.js?v=20260910-orderfix1','wts-runtime-v6.js?v=20260910-orderfix2')
+          s=s.replace('wts-chart-v3.js?v=20260910-orderfix1','wts-chart-v3.js?v=20260910-orderfix2')
+          p.write_text(s,encoding='utf-8')
+          PY
+      - name: Verify cancel cannot map to SELL
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          s=Path('index.html').read_text(encoding='utf-8')
+          bad="confirm('매수면 확인, 매도면 취소를 누르세요.')?'BUY':'SELL'"
+          if bad in s: raise SystemExit('unsafe mobile order logic still present')
+          if "if(rawSide===null)return" not in s: raise SystemExit('side cancel guard missing')
+          if "if(!confirm(`${cur.symbol}" not in s: raise SystemExit('final execution confirmation missing')
+          if 'wts-order-confirm-v9.js' in s: raise SystemExit('obsolete order hotfix loader still present')
+          print('mobile order cancel safety verified in index.html')
+          PY
+      - name: Commit patched index
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.html
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'Fix mobile order cancel in core WTS MTS runtime'
+          git push
